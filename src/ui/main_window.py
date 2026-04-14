@@ -181,9 +181,12 @@ class MainWindow(QMainWindow):
         """Load external QSS stylesheet"""
         try:
             qss_path = self._get_resource_path("styles/main.qss")
+            logger.info(f"Loading stylesheet from: {qss_path}")
             if qss_path.exists():
                 with open(qss_path, "r", encoding="utf-8") as f:
-                    self.setStyleSheet(f.read())
+                    content = f.read()
+                    self.setStyleSheet(content)
+                    logger.info(f"Stylesheet loaded successfully ({len(content)} bytes)")
             else:
                 logger.warning(f"Stylesheet not found: {qss_path}")
         except Exception as e:
@@ -217,16 +220,37 @@ class MainWindow(QMainWindow):
         logo_widget = QWidget()
         logo_layout = QGridLayout(logo_widget)
         logo_layout.setContentsMargins(16, 24, 16, 16)
+        logo_layout.setSpacing(12)
         
-        # Split APP_NAME if it's long, or just let it wrap
-        app_name_lbl = QLabel(APP_NAME.replace(" ", "\n", 1))
-        app_name_lbl.setStyleSheet("font-size: 32px; font-weight: 800; color: #1A1A1A; line-height: 1.1;")
+        # Icon Label
+        icon_lbl = QLabel()
+        icon_path = self._get_resource_path("styles/app_icon.ico")
+        if icon_path.exists():
+            from PyQt5.QtGui import QPixmap
+            pixmap = QPixmap(str(icon_path))
+            if not pixmap.isNull():
+                icon_lbl.setPixmap(pixmap.scaled(54, 54, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        
+        # App Name: Oracle HC [newline] Generator
+        # APP_NAME is "Oracle HC Generator", we want a newline before the last word
+        display_name = APP_NAME.rsplit(" ", 1)
+        name_text = "\n".join(display_name) if len(display_name) > 1 else APP_NAME
+        
+        app_name_lbl = QLabel(name_text)
+        app_name_lbl.setWordWrap(True)
+        app_name_lbl.setStyleSheet("font-size: 26px; font-weight: 800; color: #1A1A1A; line-height: 1.0;")
         
         version_lbl = QLabel(f"v{APP_VERSION}")
         version_lbl.setStyleSheet("font-size: 11px; font-weight: 600; color: #0067C0; background: rgba(0,103,192,0.1); padding: 2px 6px; border-radius: 4px;")
         
-        logo_layout.addWidget(app_name_lbl, 0, 0, 2, 1, Qt.AlignLeft | Qt.AlignVCenter)
-        logo_layout.addWidget(version_lbl, 0, 1, 1, 1, Qt.AlignRight | Qt.AlignTop)
+        # Layout arrangement: [Icon] [Name] [Version]
+        # Icon spans 2 rows to center against the multi-line text
+        logo_layout.addWidget(icon_lbl, 0, 0, 2, 1, Qt.AlignLeft | Qt.AlignVCenter)
+        logo_layout.addWidget(app_name_lbl, 0, 1, 2, 1, Qt.AlignLeft | Qt.AlignVCenter)
+        logo_layout.addWidget(version_lbl, 0, 2, 1, 1, Qt.AlignRight | Qt.AlignTop)
+        
+        # Set column stretch to keep logo and name together
+        logo_layout.setColumnStretch(1, 1)
         
         sidebar_layout.addWidget(logo_widget)
         
@@ -259,7 +283,7 @@ class MainWindow(QMainWindow):
         self.sidebar_footer.currentRowChanged.connect(self._on_footer_tab_changed)
         
         # Chữ ký người tạo
-        signature_label = QLabel("Victor Le")
+        signature_label = QLabel("Developed by Victor Le")
         signature_label.setObjectName("signatureLabel")
         signature_label.setAlignment(Qt.AlignCenter)
         sidebar_layout.addWidget(signature_label)
@@ -541,23 +565,33 @@ class MainWindow(QMainWindow):
         # Title label removed as requested
         
         preview_tabs = QTabWidget()
+        # Đảm bảo tab bar đủ cao và không rút gọn chữ (elide)
+        preview_tabs.tabBar().setFixedHeight(60) 
+        preview_tabs.tabBar().setElideMode(Qt.ElideNone)
         
         self.alerts_table = QTableWidget()
         self.alerts_table.setColumnCount(3)
         self.alerts_table.setHorizontalHeaderLabels(["Node ID", "Timestamp", "Error Code"])
         self.alerts_table.horizontalHeader().setStretchLastSection(True)
+        self.alerts_table.horizontalHeader().setFixedHeight(55) # Header bảng cũng cần cao ráo
+        self.alerts_table.setColumnWidth(0, 100) # Node ID
+        self.alerts_table.setColumnWidth(1, 250) # Timestamp (tăng chiều rộng)
         preview_tabs.addTab(self.alerts_table, "Alert Logs")
         
         self.awr_table = QTableWidget()
         self.awr_table.setColumnCount(2)
         self.awr_table.setHorizontalHeaderLabels(["Node ID", "Tables Found"])
         self.awr_table.horizontalHeader().setStretchLastSection(True)
+        self.awr_table.horizontalHeader().setFixedHeight(55)
+        self.awr_table.setColumnWidth(0, 100)
         preview_tabs.addTab(self.awr_table, "AWR Summary")
         
         self.db_info_table = QTableWidget()
         self.db_info_table.setColumnCount(2)
         self.db_info_table.setHorizontalHeaderLabels(["Node ID", "Sections Found"])
         self.db_info_table.horizontalHeader().setStretchLastSection(True)
+        self.db_info_table.horizontalHeader().setFixedHeight(55)
+        self.db_info_table.setColumnWidth(0, 100)
         preview_tabs.addTab(self.db_info_table, "HTML Summary")
         
         layout.addWidget(preview_tabs)
@@ -875,10 +909,37 @@ class MainWindow(QMainWindow):
         queue_layout.addWidget(self.merge_file_list)
 
         queue_group.setLayout(queue_layout)
-        layout.addWidget(queue_group)
 
-        # ── 2. Output Settings ─────────────────────────────────────
-        output_group = QGroupBox("2. OUTPUT SETTINGS")
+        # ── 2. DB ORDER LIST ──────────────────────────────────────────
+        sort_group = QGroupBox("2. DB ORDER LIST")
+        sort_layout = QVBoxLayout()
+        sort_layout.setSpacing(8)
+
+        self.db_order_input = QTextEdit()
+        self.db_order_input.setObjectName("merge_list")
+        self.db_order_input.setPlaceholderText(
+            "Dán danh sách DB theo\nthứ tự mong muốn:\n\nDCFNGTB\nPRODDB\nFINDB\n\n"
+            "Quy tắc: tên file\nDCFNGTB_appendix.docx\n→ db_name = DCFNGTB"
+        )
+        sort_layout.addWidget(self.db_order_input, stretch=1)
+
+        btn_sort = QPushButton("⚡ Auto Sort by List")
+        btn_sort.setObjectName("main_action_btn")
+        btn_sort.setToolTip("Sắp xếp lại danh sách file theo thứ tự DB ở trên")
+        btn_sort.clicked.connect(self._merge_sort_by_db_list)
+        sort_layout.addWidget(btn_sort)
+
+        sort_group.setLayout(sort_layout)
+
+        # ── Đặt 2 GroupBox nằm ngang nhau ────────────────────────────
+        top_row = QHBoxLayout()
+        top_row.setSpacing(12)
+        top_row.addWidget(queue_group, stretch=3)   # 60% chiều rộng
+        top_row.addWidget(sort_group, stretch=2)    # 40% chiều rộng
+        layout.addLayout(top_row, stretch=1)        # Chiếm toàn bộ không gian dọc còn lại
+
+        # ── 3. Output Settings ─────────────────────────────────────
+        output_group = QGroupBox("3. OUTPUT SETTINGS")
         output_grid = QGridLayout()
         output_grid.setSpacing(10)
 
@@ -914,6 +975,7 @@ class MainWindow(QMainWindow):
         log_layout = QVBoxLayout()
         self.merge_log_text = QTextEdit()
         self.merge_log_text.setReadOnly(True)
+        self.merge_log_text.setFixedHeight(100)
         log_layout.addWidget(self.merge_log_text)
         log_group.setLayout(log_layout)
         layout.addWidget(log_group)
@@ -1044,6 +1106,73 @@ class MainWindow(QMainWindow):
             item = self.merge_file_list.item(i)
             path = item.data(Qt.UserRole)
             item.setText(f"{i + 1}. {_P(path).name}")
+
+    def _merge_sort_by_db_list(self):
+        """Sắp xếp lại queue file theo thứ tự danh sách DB người dùng nhập.
+        
+        Quy tắc: db_name = phần trước dấu '_' đầu tiên trong tên file.
+        Ví dụ: DCFNGTB_appendix.docx -> db_name = DCFNGTB
+        """
+        raw_text = self.db_order_input.toPlainText().strip()
+        if not raw_text:
+            QMessageBox.warning(self, "Thiếu danh sách",
+                                "Vui lòng nhập danh sách tên DB vào ô bên trên trước khi sắp xếp.")
+            return
+
+        if self.merge_file_list.count() == 0:
+            QMessageBox.warning(self, "Chưa có file",
+                                "Vui lòng thêm file vào danh sách trước khi sắp xếp.")
+            return
+
+        # Đọc danh sách DB theo thứ tự (bỏ dòng trống, strip whitespace)
+        db_order = [line.strip().upper() for line in raw_text.splitlines() if line.strip()]
+
+        # Thu thập tất cả file hiện có trong queue
+        all_paths = [
+            self.merge_file_list.item(i).data(Qt.UserRole)
+            for i in range(self.merge_file_list.count())
+        ]
+
+        # Tạo dict: db_name -> path (lấy phần trước '_' đầu tiên, uppercase)
+        from pathlib import Path as _P
+        db_to_path = {}
+        unmatched = []
+        for path in all_paths:
+            filename = _P(path).stem  # Bỏ đuôi .docx
+            db_key = filename.split('_')[0].upper()
+            db_to_path[db_key] = path
+
+        # Sắp xếp theo thứ tự trong danh sách
+        sorted_paths = []
+        not_found_dbs = []
+        for db_name in db_order:
+            if db_name in db_to_path:
+                sorted_paths.append(db_to_path[db_name])
+            else:
+                not_found_dbs.append(db_name)
+
+        # Thêm các file không khớp vào cuối
+        matched_paths = set(sorted_paths)
+        for path in all_paths:
+            if path not in matched_paths:
+                sorted_paths.append(path)
+                unmatched.append(_P(path).name)
+
+        # Cập nhật lại list widget theo thứ tự mới
+        self.merge_file_list.clear()
+        for path in sorted_paths:
+            item = QListWidgetItem(f"temp. {_P(path).name}")
+            item.setData(Qt.UserRole, path)
+            self.merge_file_list.addItem(item)
+        self._merge_refresh_numbers()
+
+        # Thông báo kết quả
+        msg_parts = [f"✅ Đã sắp xếp {len(sorted_paths)} file theo danh sách DB."]
+        if not_found_dbs:
+            msg_parts.append(f"\n⚠️ Không tìm thấy file cho: {', '.join(not_found_dbs)}")
+        if unmatched:
+            msg_parts.append(f"\n📌 Đặt xuống cuối (không khớp DB): {', '.join(unmatched)}")
+        QMessageBox.information(self, "Sắp xếp hoàn tất", "\n".join(msg_parts))
 
     def _browse_merge_output(self):
         path, _ = QFileDialog.getSaveFileName(

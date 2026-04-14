@@ -32,7 +32,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='OracleRACReport_OSWBB',
+    name='OracleHCGenerator_v2.1.1',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

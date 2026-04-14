@@ -13,11 +13,11 @@ if not exist "dist\jre_mini\bin\java.exe" (
 )
 
 echo [INFO] Dang bat dau qua trinh dong goi voi PyInstaller...
-pyinstaller --clean build.spec
+venv\Scripts\pyinstaller --clean build.spec
 
 if %ERRORLEVEL% EQU 0 (
     echo [SUCCESS] Dong goi thanh cong! 
-    echo [INFO] File thuc thi nam tai: dist\OracleRACReport_OSWBB.exe
+    echo [INFO] File thuc thi nam tai: dist\OracleHCGenerator_v2.1.1.exe
 ) else (
     echo [ERROR] Qua trinh dong goi gap loi.
 )

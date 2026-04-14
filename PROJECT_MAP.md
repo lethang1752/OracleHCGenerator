@@ -70,8 +70,8 @@ graph TD
 
 ### 1. `src/config.py` & `main.py`
 - `APP_NAME` = "Oracle Report Generator"
-- `APP_VERSION` = "2.0.1"
-- `AppUserModelID` = "victorle.oracle.reportgen.2.0.1" (Fix Taskbar Icon)
+- `APP_VERSION` = "2.1.1"
+- `AppUserModelID` = "victorle.oracle.reportgen.2.1.1" (Fix Taskbar Icon)
 - `WINDOW_WIDTH` = 1440
 - `WINDOW_HEIGHT` = 900
 

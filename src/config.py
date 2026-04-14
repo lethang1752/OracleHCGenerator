@@ -38,7 +38,7 @@ LOG_FILE = LOG_DIR / "app.log"
 
 # Application Settings
 APP_NAME = "Oracle HC Generator"
-APP_VERSION = "2.0.1"
+APP_VERSION = "2.1.1"
 WINDOW_WIDTH = 1440
 WINDOW_HEIGHT = 900
 

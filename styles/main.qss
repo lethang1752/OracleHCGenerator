@@ -282,10 +282,12 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 QHeaderView::section {
     background-color: #F3F3F3;
     color: #1A1A1A;
-    padding: 6px 12px;
+    padding: 12px 12px;
+    font-family: 'Segoe UI', sans-serif; /* Dùng font tiêu chuẩn để tránh lỗi baseline */
+    font-size: 14px;
     border: none;
     border-right: 1px solid #E5E5E5;
-    border-bottom: 1px solid #E5E5E5;
+    border-bottom: 2px solid #E5E5E5;
     font-weight: 600;
 }
 
@@ -315,5 +317,41 @@ QRadioButton::indicator:checked {
 }
 QRadioButton::indicator:checked:hover {
     border: 4px solid #005FB8;
+}
+
+/* Tab Widget (Preview Data) */
+QTabWidget::pane {
+    border: 1px solid #E5E5E5;
+    border-radius: 8px;
+    background-color: #FFFFFF;
+    top: -1px; /* Align with tab bar */
+}
+
+QTabBar {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 14px;
+}
+
+QTabBar::tab {
+    background-color: #EBEBEB;
+    border: 1px solid #D1D1D1;
+    border-bottom: none;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    padding: 12px 40px;
+    min-width: 120px;
+    margin-right: 4px;
+    font-weight: 500;
+}
+
+QTabBar::tab:selected {
+    background-color: #FFFFFF;
+    border: 1px solid #E5E5E5;
+    border-bottom: 3px solid #0067C0; 
+    font-weight: 600;
+}
+
+QTabBar::tab:hover:!selected {
+    background-color: #F6F6F6;
 }
 
