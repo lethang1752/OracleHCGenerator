@@ -1,0 +1,319 @@
+/*
+ * Windows 11 Fluent Style Theme
+ * Palette: #F3F3F3 (Background), #FFFFFF (Surface), #0067C0 (Primary Accent)
+ * Text: #1A1A1A (Primary), #5D5D5D (Secondary)
+ */
+
+QMainWindow {
+    background-color: #F3F3F3;
+}
+
+QWidget {
+    color: #1A1A1A;
+    font-family: 'Segoe UI Variable Display', 'Segoe UI', -apple-system, sans-serif;
+    font-size: 15px; /* Increased from 14px */
+}
+
+QLabel {
+    color: #1A1A1A;
+    font-weight: 400;
+}
+
+QLabel#sectionTitle {
+    font-family: 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
+    font-size: 28px;
+    font-weight: bold; /* Chuyển sang Bold hoàn toàn */
+    color: #1A1A1A;
+    margin-bottom: 5px;
+}
+
+QLabel#muted {
+    color: #5D5D5D;
+    font-size: 12px;
+}
+
+QWidget#sidebarContainer {
+    background-color: #EBEBEB; /* Tông màu xám nhẹ để ngăn cách */
+    border-right: 1px solid #E0E0E0; /* Thanh chia tách rõ rệt */
+}
+
+/* Sidebar Menu */
+QListWidget#sidebarMenu {
+    background-color: transparent;
+    border: none;
+    padding: 0px 10px; /* Reduced from 20px to prevent clipping footer items */
+    outline: none;
+}
+
+QListWidget#sidebarMenu::item {
+    padding: 10px 16px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    color: #1A1A1A;
+    font-weight: bold; /* Bold rõ nét cho menu side tab */
+    font-size: 18px; /* Increased from 16px */
+    min-height: 32px;
+}
+
+QListWidget#sidebarMenu::item:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+QListWidget#sidebarMenu::item:selected {
+    color: #1A1A1A;
+    font-weight: bold; /* In đậm khi được chọn */
+    background-color: rgba(0, 0, 0, 0.06); 
+    /* Indicator in Win11 is a small blue pill on the left. We fake it with border-left and careful padding */
+    border-left: 3px solid #0067C0; 
+}
+
+/* Signature Label */
+QLabel#signatureLabel {
+    color: #7A7A7A;
+    font-weight: 400;
+    font-size: 12px;
+    padding-bottom: 20px;
+}
+
+/* Inputs */
+QLineEdit, QSpinBox, QComboBox {
+    background-color: #FFFFFF;
+    border: 1px solid #D1D1D1;
+    border-bottom: 1px solid #8F8F8F;
+    border-radius: 4px;
+    padding: 6px 12px;
+    min-height: 20px;
+    color: #1A1A1A;
+}
+
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
+    border: 1px solid transparent;
+    border-bottom: 2px solid #0067C0;
+    background-color: #FFFFFF;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 20px;
+}
+
+QComboBox::down-arrow {
+    image: none;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid #5D5D5D;
+    margin-right: 10px;
+}
+
+/* Buttons */
+QPushButton {
+    background-color: #FBFBFB;
+    border: 1px solid #D1D1D1;
+    border-bottom: 1px solid #C4C4C4;
+    border-radius: 4px;
+    padding: 6px 16px;
+    min-height: 20px;
+    color: #1A1A1A;
+    font-weight: 400;
+    font-size: 14px;
+}
+
+QPushButton:hover {
+    background-color: #F6F6F6;
+    border: 1px solid #CCCCCC;
+}
+
+QPushButton:pressed {
+    background-color: #E6E6E6;
+    color: #5D5D5D;
+}
+
+/* Accent Buttons */
+QPushButton#main_action_btn {
+    background-color: #0067C0;
+    color: white;
+    border: 1px solid transparent;
+    font-weight: 600;
+    font-size: 14px;
+    min-height: 32px;
+    border-radius: 4px;
+}
+
+QPushButton#main_action_btn:hover {
+    background-color: #005FB8;
+}
+
+QPushButton#main_action_btn:pressed {
+    background-color: #00529F;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+QPushButton#secondary_action_btn {
+    background-color: #FBFBFB;
+    border: 1px solid #D1D1D1;
+    color: #1A1A1A;
+    font-size: 14px;
+    min-height: 32px;
+    border-radius: 4px;
+}
+
+QPushButton#secondary_action_btn:hover {
+    background-color: #F6F6F6;
+}
+
+QPushButton#browse_btn {
+    background-color: #FBFBFB;
+    border: 1px solid #D1D1D1;
+    color: #1A1A1A;
+}
+
+QPushButton#browse_btn:hover {
+    background-color: #F6F6F6;
+}
+
+QPushButton#clear_btn {
+    background-color: transparent;
+    color: #D13438; /* Fluent Error Color */
+    border: 1px solid #D13438; /* Thêm viền cho nút remove/clear */
+    border-radius: 4px;
+}
+
+QPushButton#clear_btn:hover {
+    background-color: rgba(209, 52, 56, 0.1);
+}
+
+/* Cards (GroupBox) */
+QGroupBox {
+    background-color: #FFFFFF;
+    border: 1px solid #E5E5E5;
+    border-radius: 8px; 
+    margin-top: 8px; 
+    padding: 32px 16px 12px 16px; /* Increased top padding for better spacing */
+}
+
+QGroupBox::title {
+    subcontrol-origin: padding;
+    subcontrol-position: top left;
+    left: -1px;
+    top: -1px; 
+    color: #0067C0; /* Màu xanh thương hiệu cho tiêu đề */
+    font-size: 14px;
+    font-weight: bold; 
+    background-color: #EBF3FB; /* Màu nền xanh nhạt chuyên nghiệp */
+    padding: 6px 16px;
+    border-top-left-radius: 8px; 
+    border-bottom-right-radius: 8px; 
+    border-right: 1px solid #D6E8F7;
+    border-bottom: 1px solid #D6E8F7;
+}
+
+/* Data Lists & Edits */
+QTextEdit, QListWidget, QTableWidget {
+    background-color: #FFFFFF;
+    border: 1px solid #E5E5E5;
+    border-radius: 4px;
+    color: #1A1A1A;
+    padding: 4px;
+}
+
+QTextEdit {
+    font-family: 'Consolas', 'Cascadia Code', monospace;
+    line-height: 1.5;
+}
+
+QListWidget::item {
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin-bottom: 2px;
+}
+
+QListWidget::item:hover {
+    background-color: #F6F6F6;
+}
+
+QListWidget::item:selected {
+    background-color: #0067C0;
+    color: #FFFFFF;
+    border-left: none; /* Revert the sidebar's border trick for normal lists */
+}
+
+/* Override selection for specific merge list or push list if needed */
+
+/* Progress Bar */
+QProgressBar {
+    border: 1px solid #E5E5E5;
+    background-color: #F3F3F3;
+    border-radius: 4px;
+    height: 16px;
+    text-align: center; /* Windows 11 sometimes shows text, sometimes not */
+    color: #1A1A1A;
+    font-size: 11px;
+}
+
+QProgressBar::chunk {
+    background-color: #0067C0;
+    border-radius: 3px;
+}
+
+/* Scrollbars */
+QScrollBar:vertical {
+    border: none;
+    background: transparent;
+    width: 12px;
+    margin: 0px;
+}
+
+QScrollBar::handle:vertical {
+    background: #CCCCCC;
+    min-height: 30px;
+    border-radius: 6px;
+    margin: 2px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #999999;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+/* Tables Header */
+QHeaderView::section {
+    background-color: #F3F3F3;
+    color: #1A1A1A;
+    padding: 6px 12px;
+    border: none;
+    border-right: 1px solid #E5E5E5;
+    border-bottom: 1px solid #E5E5E5;
+    font-weight: 600;
+}
+
+/* Radio Buttons */
+QRadioButton {
+    color: #1A1A1A;
+    font-weight: 400;
+}
+
+QRadioButton::indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 8px; /* 12 + 2*2 padding = 16 -> r=8 */
+}
+
+QRadioButton::indicator:unchecked {
+    border: 1px solid #8F8F8F;
+    background: #FFFFFF;
+}
+QRadioButton::indicator:unchecked:hover {
+    border: 1px solid #1A1A1A;
+}
+
+QRadioButton::indicator:checked {
+    border: 4px solid #0067C0;
+    background: #FFFFFF; /* Inner dot */
+}
+QRadioButton::indicator:checked:hover {
+    border: 4px solid #005FB8;
+}
+

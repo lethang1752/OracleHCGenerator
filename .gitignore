@@ -1,0 +1,36 @@
+# Ignore generated files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Database
+*.db
+*.sqlite
+
+# Output
+output/
+logs/
+data/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,42 @@
+/* 
+ * GUI Variables Definition for Oracle RAC Report Generator
+ * Designed to separate styling logic from Python logic
+ */
+
+// Color Palette (Light Theme Default)
+$bg-primary: #f5f6fa;        // Main background
+$bg-secondary: #ffffff;      // Card/Panel background
+$bg-tertiary: #f1f2f6;       // Tab background / Inactive elements
+$bg-console: #2f3640;        // Log console background
+
+// Text Colors
+$text-primary: #2f3640;
+$text-secondary: #7f8c8d;
+$text-console: #f5f6fa;
+
+// Brand/Action Colors
+$brand-primary: #0097e6;     // Buttons, active tabs, progress bars
+$brand-primary-hover: #00a8ff;
+$brand-secondary: #718093;   // Secondary buttons (Browse, etc)
+$border-color: #dcdde1;      // Standard borders
+
+// Typography
+$font-family-sans: 'Segoe UI', Arial, sans-serif;
+$font-family-mono: 'Consolas', monospace;
+
+$font-size-title: 24px;
+$font-size-base: 14px;
+$font-size-sm: 12px;
+
+// Spacing & Geometry
+$spacing-xs: 5px;
+$spacing-sm: 8px;
+$spacing-md: 10px;
+$spacing-lg: 15px;
+$spacing-xl: 20px;
+
+$border-radius-sm: 4px;
+$border-radius-md: 5px;
+$border-radius-lg: 6px;
+
+$window-padding: 20px;
