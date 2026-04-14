@@ -1,6 +1,6 @@
 # 🚀 Oracle HC Generator - Hướng Dẫn Sử Dụng
 
-[![Version](https://img.shields.io/badge/version-2.0.1-blue.svg)](https://github.com/victorle/OracleReportGenerator)
+[![Version](https://img.shields.io/badge/version-2.0.1-blue.svg)](https://github.com/lethang1752/OracleHCGenerator)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4.svg)](https://www.microsoft.com/windows/)
 [![UI](https://img.shields.io/badge/UI-Fluent_Design-0067C0.svg)](https://docs.microsoft.com/en-us/windows/apps/design/)
 
