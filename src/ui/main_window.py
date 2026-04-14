@@ -1047,7 +1047,7 @@ class MainWindow(QMainWindow):
 
     def _browse_merge_output(self):
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save Merged Document As", "merged_report.docx",
+            self, "Save Merged Document As", "merged_appendix.docx",
             "Word Documents (*.docx)"
         )
         if path:

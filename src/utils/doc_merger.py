@@ -10,7 +10,7 @@ Usage (from your service layer):
 
     success, message = merge_documents_ordered(
         ordered_file_paths=[r"C:\docs\file_A.docx", r"C:\docs\file_B.docx"],
-        output_destination=r"C:\output\merged_report.docx"
+        output_destination=r"C:\output\merged_appendix.docx"
     )
 """
 
