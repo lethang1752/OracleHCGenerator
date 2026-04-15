@@ -21,10 +21,26 @@ logger = logging.getLogger(__name__)
 class ComprehensiveHealthcareReportGenerator:
     """Generates the comprehensive health check report (DOCX)"""
     
-    def __init__(self, output_path: str, font_name: str = 'Times New Roman'):
+    def __init__(self, output_path: str, font_option: str = 'times'):
         self.output_path = output_path
-        self.doc = Document()
-        self.font_name = font_name
+        self.font_option = font_option.lower()
+        
+        # Select template based on font option
+        template_name = 'timenr_template.docx' if self.font_option == 'times' else 'calibri_template.docx'
+        template_path = Path('template_docx') / template_name
+        
+        try:
+            if template_path.exists():
+                self.doc = Document(str(template_path))
+                logger.info(f"Initialized with template: {template_path}")
+            else:
+                logger.warning(f"Template {template_path} not found. Using default document.")
+                self.doc = Document()
+        except Exception as e:
+            logger.error(f"Error loading template: {e}")
+            self.doc = Document()
+
+        self.font_name = 'Times New Roman' if self.font_option == 'times' else 'Calibri'
         self._setup_styles()
     
     def _setup_styles(self):
@@ -188,12 +204,12 @@ class ComprehensiveHealthcareReportGenerator:
     def _add_section_database_title(self, data: Dict[str, Any]):
         """Database name as main title"""
         db_name = self._get_base_db_name(data)
-        self.doc.add_heading(f"1. {db_name}", level=1)
+        self.doc.add_heading(db_name, level=1)
         self.doc.add_paragraph()
     
     def _add_section_1_1_status_check(self, data: Dict[str, Any]):
         """1.1 Status Check"""
-        self.doc.add_heading("1.1 Status check", level=2)
+        self.doc.add_heading("Status check", level=2)
         
 
         db_name = self._get_base_db_name(data)
@@ -203,7 +219,7 @@ class ComprehensiveHealthcareReportGenerator:
     
     def _add_section_1_2_alert_logs(self, data: Dict[str, Any]):
         """1.2 Alert Logs"""
-        self.doc.add_heading("1.2 Alert log", level=2)
+        self.doc.add_heading("Alert log", level=2)
         
         nodes = data.get('nodes', [])
         for node in nodes:
@@ -249,19 +265,19 @@ class ComprehensiveHealthcareReportGenerator:
     
     def _add_section_1_3_performance_check(self, data: Dict[str, Any]):
         """1.3 Performance Check with subsections"""
-        self.doc.add_heading("1.3 Performance check", level=2)
+        self.doc.add_heading("Performance check", level=2)
         
         nodes = data.get('nodes', [])
         
         # 1.3.1 CPU
-        self.doc.add_heading("1.3.1 CPU", level=3)
+        self.doc.add_heading("CPU", level=3)
         for node in nodes:
             inst = node.get('instance_name', f"NODE{node.get('node_id')}")
             self._add_instance_name(inst)
             self._add_node_images(node.get('data_dir', ''), ['OSWg_OS_Cpu_Idle.jpg', 'OSWg_OS_Cpu_System.jpg', 'OSWg_OS_Cpu_User.jpg'])
         
         # 1.3.2 Memory
-        self.doc.add_heading("1.3.2 Memory", level=3)
+        self.doc.add_heading("Memory", level=3)
         for node in nodes:
             inst = node.get('instance_name', f"NODE{node.get('node_id')}")
             self._add_instance_name(inst)
@@ -270,7 +286,7 @@ class ComprehensiveHealthcareReportGenerator:
             self._add_efficiency_table(node.get('awr', {}), align_left_cols=[0, 2])
         
         # 1.3.3 I/O
-        self.doc.add_heading("1.3.3 I/O", level=3)
+        self.doc.add_heading("I/O", level=3)
         for node in nodes:
             inst = node.get('instance_name', f"NODE{node.get('node_id')}")
             self._add_instance_name(inst)
@@ -279,7 +295,7 @@ class ComprehensiveHealthcareReportGenerator:
             self._add_awr_table(node.get('awr', {}), 'wait class', align_left_cols=[0])
         
         # 1.3.4 Top Queries
-        self.doc.add_heading("1.3.4 Top queries", level=3)
+        self.doc.add_heading("Top queries", level=3)
         # 1.3.4: Fixed CM widths per user request
         top_sql_widths = [Cm(1.9), Cm(1.5), Cm(2.25), Cm(1.25), Cm(1.25), Cm(1.25), Cm(3.0), Cm(4.0)]
         for node in nodes:
@@ -288,14 +304,14 @@ class ComprehensiveHealthcareReportGenerator:
             self._add_awr_table(node.get('awr', {}), 'top SQL elapsed', drop_cols=['SQL Module'], col_widths=top_sql_widths)
         
         # 1.3.5 SQL Text
-        self.doc.add_heading("1.3.5 Lists SQL Text", level=3)
+        self.doc.add_heading("Lists SQL Text", level=3)
         for node in nodes:
             inst = node.get('instance_name', f"NODE{node.get('node_id')}")
             self._add_instance_name(inst)
             self._add_filtered_sql_text_table(node.get('awr', {}))
         
         # 1.3.6 Wait Events
-        self.doc.add_heading("1.3.6 Top wait events", level=3)
+        self.doc.add_heading("Top wait events", level=3)
         # 1.3.6: Fixed CM widths per user request
         wait_event_widths = [Cm(5.2), Cm(2.0), Cm(2.5), Cm(2.0), Cm(1.7), Cm(3.0)]
         from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -317,15 +333,15 @@ class ComprehensiveHealthcareReportGenerator:
         db_info_first = nodes[0].get('database_info', {}) if nodes else {}
         
         # 1.3.7 Disk group usage - Col 2 center
-        self.doc.add_heading("1.3.7 Disk group usage", level=3)
+        self.doc.add_heading("Disk group usage", level=3)
         self._add_db_info_table(db_info_first, 'ASM', align_center_cols=[1], filter_nulls=True)
         
         # 1.3.8 Tablespace usage - Fixed CM widths
-        self.doc.add_heading("1.3.8 Tablespace usage", level=3)
+        self.doc.add_heading("Tablespace usage", level=3)
         tablespace_widths = [Cm(4.15), Cm(1.75), Cm(2.25), Cm(2.25), Cm(2.25), Cm(2.25), Cm(1.5)]
         self._add_db_info_table(db_info_first, 'TABLESPACE', col_widths=tablespace_widths)
         
-        self.doc.add_heading("1.3.9 Index Fragment", level=3)
+        self.doc.add_heading("Index Fragment", level=3)
         self.doc.add_paragraph("- List of normal index fragment")
         frag_widths_norm = [Cm(2.4), Cm(8.0), Cm(2.0), Cm(2.0), Cm(2.0)]
         self._add_db_info_table(db_info_first, 'INDEX_FRAGMENT', filter_nulls=True, col_widths=frag_widths_norm)
@@ -334,7 +350,7 @@ class ComprehensiveHealthcareReportGenerator:
         self._add_db_info_table(db_info_first, 'INDEX_PARTITION_FRAGMENT', filter_nulls=True, col_widths=frag_widths_part)
         
         # 1.3.10 Table Fragment
-        self.doc.add_heading("1.3.10 Table Fragment", level=3)
+        self.doc.add_heading("Table Fragment", level=3)
         self.doc.add_paragraph("- List of normal table fragment")
         self._add_db_info_table(db_info_first, 'TABLE_FRAGMENT', filter_nulls=True, col_widths=frag_widths_norm)
         self.doc.add_paragraph("- List of partition table fragment")
@@ -342,18 +358,18 @@ class ComprehensiveHealthcareReportGenerator:
     
     def _add_section_1_4_data_quality(self, data: Dict[str, Any]):
         """1.4 Data Quality"""
-        self.doc.add_heading("1.4 Data quality", level=2)
+        self.doc.add_heading("Data quality", level=2)
         
         nodes = data.get('nodes', [])
         db_info_first = nodes[0].get('database_info', {}) if nodes else {}
         
         # 1.4.1 Invalid Objects
-        self.doc.add_heading("1.4.1 Invalid Object", level=3)
+        self.doc.add_heading("Invalid Object", level=3)
         self._add_db_info_table(db_info_first, 'INVALID_OBJECT', filter_nulls=True, 
                                align_center_cols=[1], align_left_cols=[2])
         
         # 1.4.2 Table/Index Statistics
-        self.doc.add_heading("1.4.2 Tables/Indexes Statistics", level=3)
+        self.doc.add_heading("Tables/Indexes Statistics", level=3)
         
         # Table Statistics
         table_stats = db_info_first.get('TABLE_STATISTICS', [])
@@ -383,12 +399,12 @@ class ComprehensiveHealthcareReportGenerator:
     
     def _add_section_1_5_ha_status(self, data: Dict[str, Any]):
         """1.5 HA/Clusterware Status"""
-        self.doc.add_heading("1.5 HA/Clusterware status", level=2)
+        self.doc.add_heading("HA/Clusterware status", level=2)
         
         nodes = data.get('nodes', [])
         
         # 1.5.1 Clusterware Status
-        self.doc.add_heading("1.5.1 Clusterware status", level=3)
+        self.doc.add_heading("Clusterware status", level=3)
         combined_cluster = []
         for node in nodes:
             cluster_node = node.get('database_info', {}).get('CHECK_CLUSTER', [])
@@ -404,7 +420,7 @@ class ComprehensiveHealthcareReportGenerator:
             self.doc.add_paragraph("[Section 'CHECK_CLUSTER' not found]")
             
         # 1.5.2 CRS Resources - Only Node 1 per user request
-        self.doc.add_heading("1.5.2 Clusterware services status details", level=3)
+        self.doc.add_heading("Clusterware services status details", level=3)
         combined_res = []
         if nodes:
             res_n = nodes[0].get('database_info', {}).get('RESOURCE_CRS', [])
@@ -420,7 +436,7 @@ class ComprehensiveHealthcareReportGenerator:
     
     def _add_section_1_6_storage_capacity(self, data: Dict[str, Any]):
         """1.6 Storage Capacity"""
-        self.doc.add_heading("1.6 Storage capacity", level=2)
+        self.doc.add_heading("Storage capacity", level=2)
         
         nodes = data.get('nodes', [])
         for node in nodes:
@@ -458,12 +474,12 @@ class ComprehensiveHealthcareReportGenerator:
     
     def _add_section_1_7_backup_status(self, data: Dict[str, Any]):
         """1.7 Backup Status"""
-        self.doc.add_heading("1.7 Backup status", level=2)
+        self.doc.add_heading("Backup status", level=2)
         nodes = data.get('nodes', [])
         db_info_first = nodes[0].get('database_info', {}) if nodes else {}
         
         # 1.7.1 Backup Status
-        self.doc.add_heading("1.7.1 Backup status", level=3)
+        self.doc.add_heading("Backup status", level=3)
         
         table_data = db_info_first.get('CHECK_BACKUP', [])
         if table_data and len(table_data) > 1:
@@ -500,7 +516,7 @@ class ComprehensiveHealthcareReportGenerator:
             self._add_db_info_table(db_info_first, 'CHECK_BACKUP', col_widths=backup_widths, font_size=9)
         
         # 1.7.2 Scheduling
-        self.doc.add_heading("1.7.2 Scheduling", level=3)
+        self.doc.add_heading("Scheduling", level=3)
         p = self.doc.add_paragraph("• Backup level 0:")
         p.paragraph_format.left_indent = Inches(0.25)
         p = self.doc.add_paragraph("Monday to Sunday (about time: 19:50 ~ 20:55)")
@@ -512,7 +528,7 @@ class ComprehensiveHealthcareReportGenerator:
         p.paragraph_format.left_indent = Inches(0.5)
         
         # 1.7.3 Policy
-        self.doc.add_heading("1.7.3 Policy", level=3)
+        self.doc.add_heading("Policy", level=3)
         p = self.doc.add_paragraph("Backups work with the backup policy:")
         
         backup_policy = db_info_first.get('BACKUP_POLICY', [])
@@ -532,7 +548,7 @@ class ComprehensiveHealthcareReportGenerator:
     
     def _add_section_1_8_dataguard_status(self, data: Dict[str, Any]):
         """1.8 Dataguard Status"""
-        self.doc.add_heading("1.8 Dataguard status", level=2)
+        self.doc.add_heading("Dataguard status", level=2)
         
         table = self.doc.add_table(rows=2, cols=4)
         table.style = 'Table Grid'
@@ -562,18 +578,18 @@ class ComprehensiveHealthcareReportGenerator:
     
     def _add_section_1_9_security(self, data: Dict[str, Any]):
         """1.9 Security"""
-        self.doc.add_heading("1.9 Security", level=2)
+        self.doc.add_heading("Security", level=2)
         
         nodes = data.get('nodes', [])
         db_info_first = nodes[0].get('database_info', {}) if nodes else {}
         
         # 1.9.1 DBA Users
-        self.doc.add_heading("1.9.1 DBA users", level=3)
+        self.doc.add_heading("DBA users", level=3)
         p = self.doc.add_paragraph("List user who has DBA privilege others than SYS/SYSTEM")
         self._add_db_info_table(db_info_first, 'DBA_ROLE', filter_nulls=True)
         
         # 1.9.2 Objects in SYSTEM
-        self.doc.add_heading("1.9.2 Users With Objects in Tablespace SYSTEM/SYSAUX", level=3)
+        self.doc.add_heading("Users With Objects in Tablespace SYSTEM/SYSAUX", level=3)
         
         obj_sys = db_info_first.get('OBJECT_IN_SYSTEM', [])
         if obj_sys:
@@ -595,7 +611,7 @@ class ComprehensiveHealthcareReportGenerator:
     
     def _add_section_1_10_patch_update(self, data: Dict[str, Any]):
         """1.10 Patch Update Status"""
-        self.doc.add_heading("1.10 Patch update status", level=2)
+        self.doc.add_heading("Patch update status", level=2)
         
         nodes = data.get('nodes', [])
         combined_patch = []

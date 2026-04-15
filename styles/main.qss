@@ -282,8 +282,8 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 QHeaderView::section {
     background-color: #F3F3F3;
     color: #1A1A1A;
-    padding: 12px 12px;
-    font-family: 'Segoe UI', sans-serif; /* Dùng font tiêu chuẩn để tránh lỗi baseline */
+    padding: 12px 6px; /* Reduced horizontal padding from 12px to 6px */
+    font-family: 'Segoe UI', sans-serif;
     font-size: 14px;
     border: none;
     border-right: 1px solid #E5E5E5;

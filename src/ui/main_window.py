@@ -588,6 +588,7 @@ class MainWindow(QMainWindow):
         self.alerts_table.horizontalHeader().setFixedHeight(55) # Header bảng cũng cần cao ráo
         self.alerts_table.setColumnWidth(0, 100) # Node ID
         self.alerts_table.setColumnWidth(1, 250) # Timestamp (tăng chiều rộng)
+        self.alerts_table.verticalHeader().hide()
         preview_tabs.addTab(self.alerts_table, "Alert Logs")
         
         self.awr_table = QTableWidget()
@@ -596,6 +597,7 @@ class MainWindow(QMainWindow):
         self.awr_table.horizontalHeader().setStretchLastSection(True)
         self.awr_table.horizontalHeader().setFixedHeight(55)
         self.awr_table.setColumnWidth(0, 100)
+        self.awr_table.verticalHeader().hide()
         preview_tabs.addTab(self.awr_table, "AWR Summary")
         
         self.db_info_table = QTableWidget()
@@ -604,6 +606,7 @@ class MainWindow(QMainWindow):
         self.db_info_table.horizontalHeader().setStretchLastSection(True)
         self.db_info_table.horizontalHeader().setFixedHeight(55)
         self.db_info_table.setColumnWidth(0, 100)
+        self.db_info_table.verticalHeader().hide()
         preview_tabs.addTab(self.db_info_table, "HTML Summary")
         
         layout.addWidget(preview_tabs)
@@ -844,9 +847,8 @@ class MainWindow(QMainWindow):
             filename = sanitize_filename(filename)
             
             docx_path = OUTPUT_DIR / f"{filename}.docx"
-            self._log(f"Generating DOCX with {font_choice} font...")
-            
-            gen = ComprehensiveHealthcareReportGenerator(str(docx_path), font_name=font_choice)
+            font_token = 'times' if 'times' in font_choice.lower() else 'calibri'
+            gen = ComprehensiveHealthcareReportGenerator(str(docx_path), font_option=font_token)
             if gen.generate_from_parsed_data(self.parsed_data):
                 self._log(f"[SUCCESS] Report saved: {docx_path}")
                 QMessageBox.information(self, "Complete", f"Workflow completed successfully!\nFile: {filename}.docx")
