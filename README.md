@@ -76,5 +76,16 @@ Dùng để ghép nhiều tệp Word (.docx) thành một tệp duy nhất.
 > **Hỗ trợ Java:** Ứng dụng này đã được đóng gói kèm một bộ chạy Java thu nhỏ (JRE 8) bên trong thư mục `jre_mini`. Bạn **KHÔNG CẦN** cài đặt thêm Java trên máy tính cá nhân để chạy tính năng đồ thị OSWBB.
 
 ---
+# Tạo môi trường ảo tên là 'venv'
+python -m venv venv
+# Kích hoạt môi trường ảo (Windows)
+.\venv\Scripts\activate
+# Cài đặt requirement
+pip install -r requirements.txt
+# Chạy ứng dụng nền python
+python main.py
+# Đóng gói ứng dụng
+pyinstaller build_onefile.spec
+---
 **Tác giả:** Victor Le
 *Cập nhật lần cuối: 14/04/2026*
