@@ -26,6 +26,7 @@ else:
 
 # Logs and DB in the same directory as EXE for portability
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(COLLECT_TOOL_DIR, exist_ok=True)
 
 # Database
 DB_PATH = BASE_DIR / "data" / "reports.db"
@@ -40,7 +41,7 @@ LOG_FILE = LOG_DIR / "app.log"
 
 # Application Settings
 APP_NAME = "Oracle HC Generator"
-APP_VERSION = "2.2.2"
+APP_VERSION = "2.3.0"
 WINDOW_WIDTH = 1440
 WINDOW_HEIGHT = 900
 

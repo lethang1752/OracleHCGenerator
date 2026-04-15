@@ -151,22 +151,36 @@ class ComprehensiveHealthcareReportGenerator:
                     run.font.color.rgb = RGBColor(255, 255, 255)
                     run.font.bold = True
                     
-    def _add_node_images(self, node_dir: str, image_names: list):
-        """Add images from node's generated_files folder - Fixed at 16.4 cm"""
+    def _add_node_images(self, node_dir: str, image_candidates: list):
+        """
+        Add images from node's generated_files folder - Fixed at 16.4 cm.
+        Supports fallback names: item can be a string or a list of candidate strings.
+        """
         img_folder = Path(node_dir) / 'generated_files'
         if not img_folder.exists():
             return
             
-        for img_name in image_names:
-            img_path = img_folder / img_name
-            if img_path.exists():
+        for item in image_candidates:
+            # Determine candidates for this image slot
+            candidates = [item] if isinstance(item, str) else item
+            
+            found_path = None
+            for cand_name in candidates:
+                img_path = img_folder / cand_name
+                if img_path.exists():
+                    found_path = img_path
+                    break
+            
+            if found_path:
                 try:
                     p = self.doc.add_paragraph()
                     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     run = p.add_run()
-                    run.add_picture(str(img_path), width=Cm(16.4))
+                    run.add_picture(str(found_path), width=Cm(16.4))
                 except Exception as e:
-                    logger.warning(f"Error adding image {img_name}: {e}")
+                    logger.warning(f"Error adding image from {found_path}: {e}")
+            else:
+                logger.warning(f"None of the candidates {candidates} were found in {img_folder}")
     
     def generate_from_parsed_data(self, data: Dict[str, Any]) -> bool:
         """Generate comprehensive report"""
@@ -285,14 +299,23 @@ class ComprehensiveHealthcareReportGenerator:
         for node in nodes:
             inst = node.get('instance_name', f"NODE{node.get('node_id')}")
             self._add_instance_name(inst)
-            self._add_node_images(node.get('data_dir', ''), ['OSWg_OS_Cpu_Idle.jpg', 'OSWg_OS_Cpu_System.jpg', 'OSWg_OS_Cpu_User.jpg'])
+            cpu_candidates = [
+                ['OSWg_OS_Cpu_Idle.jpg', 'OSWg_Cpu_Idle.jpg'],
+                ['OSWg_OS_Cpu_System.jpg', 'OSWg_Cpu_System.jpg'],
+                ['OSWg_OS_Cpu_User.jpg', 'OSWg_Cpu_User.jpg']
+            ]
+            self._add_node_images(node.get('data_dir', ''), cpu_candidates)
         
         # 1.3.2 Memory
         self.doc.add_heading("Memory", level=3)
         for node in nodes:
             inst = node.get('instance_name', f"NODE{node.get('node_id')}")
             self._add_instance_name(inst)
-            self._add_node_images(node.get('data_dir', ''), ['OSWg_OS_Memory_Free.jpg', 'OSWg_OS_Memory_Swap.jpg'])
+            mem_candidates = [
+                ['OSWg_OS_Memory_Free.jpg', 'OSWg_MemInfoFreeMem.jpg'],
+                ['OSWg_OS_Memory_Swap.jpg', 'OSWg_Memory_Swap.jpg']
+            ]
+            self._add_node_images(node.get('data_dir', ''), mem_candidates)
             self.doc.add_paragraph("- Buffer & Library Hit Ratio")
             self._add_efficiency_table(node.get('awr', {}), align_left_cols=[0, 2])
         
@@ -301,7 +324,10 @@ class ComprehensiveHealthcareReportGenerator:
         for node in nodes:
             inst = node.get('instance_name', f"NODE{node.get('node_id')}")
             self._add_instance_name(inst)
-            self._add_node_images(node.get('data_dir', ''), ['OSWg_OS_IO_PB.jpg'])
+            io_candidates = [
+                ['OSWg_OS_IO_PB.jpg', 'OSWg_IO_PB.jpg']
+            ]
+            self._add_node_images(node.get('data_dir', ''), io_candidates)
             self.doc.add_paragraph("- Wait Classes by Total Wait Time")
             self._add_awr_table(node.get('awr', {}), 'wait class', align_left_cols=[0])
         

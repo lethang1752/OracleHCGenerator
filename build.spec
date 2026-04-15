@@ -9,8 +9,7 @@ a = Analysis(
     datas=[
         ('oswbb', 'oswbb'),
         ('dist/jre_mini', 'dist/jre_mini'),
-        ('styles', 'styles'),
-        ('HC_collect_tool', 'HC_collect_tool')
+        ('styles', 'styles')
     ],
     hiddenimports=[],
     hookspath=[],

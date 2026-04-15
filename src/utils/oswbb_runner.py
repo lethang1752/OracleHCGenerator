@@ -25,8 +25,7 @@ class OSWBBGraphGenerator(QObject):
         self.temp_filtered_dir = None
         
         self.ALLOWED_FOLDERS = [
-            'oswcpuinfo', 'oswiostat', 'oswmeminfo', 
-            'oswnetstat', 'oswvmstat'
+            'oswcpuinfo', 'oswiostat', 'oswmeminfo', 'oswvmstat'
         ]
 
     def run(self):

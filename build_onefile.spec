@@ -8,7 +8,6 @@ a = Analysis(
         ('styles', 'styles'),
         ('oswbb', 'oswbb'),
         ('dist/jre_mini', 'jre_mini'),
-        ('HC_collect_tool', 'HC_collect_tool'),
         ('template_docx', 'template_docx')
     ],
     hiddenimports=[],
@@ -27,7 +26,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='OracleReportGenerator',
+    name='OracleHCGenerator_v2.3.0',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

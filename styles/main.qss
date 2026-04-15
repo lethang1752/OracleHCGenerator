@@ -52,7 +52,7 @@ QListWidget#sidebarMenu::item {
     color: #1A1A1A;
     font-weight: bold; /* Bold rõ nét cho menu side tab */
     font-size: 18px; /* Increased from 16px */
-    min-height: 32px;
+    min-height: 30px;
 }
 
 QListWidget#sidebarMenu::item:hover {
@@ -81,8 +81,8 @@ QLineEdit, QSpinBox, QComboBox {
     border: 1px solid #D1D1D1;
     border-bottom: 1px solid #8F8F8F;
     border-radius: 4px;
-    padding: 6px 12px;
-    min-height: 20px;
+    padding: 5px 12px;
+    min-height: 28px;
     color: #1A1A1A;
 }
 
@@ -111,8 +111,8 @@ QPushButton {
     border: 1px solid #D1D1D1;
     border-bottom: 1px solid #C4C4C4;
     border-radius: 4px;
-    padding: 6px 16px;
-    min-height: 20px;
+    padding: 5px 16px;
+    min-height: 28px;
     color: #1A1A1A;
     font-weight: 400;
     font-size: 14px;
@@ -165,7 +165,7 @@ QPushButton#browse_btn {
     background-color: #FBFBFB;
     border: 1px solid #D1D1D1;
     color: #1A1A1A;
-    min-height: 32px;
+    min-height: 28px;
 }
 
 QPushButton#browse_btn:hover {
@@ -177,7 +177,7 @@ QPushButton#clear_btn {
     color: #D13438; /* Fluent Error Color */
     border: 1px solid #D13438; /* Thêm viền cho nút remove/clear */
     border-radius: 4px;
-    min-height: 32px;
+    min-height: 28px;
 }
 
 QPushButton#clear_btn:hover {

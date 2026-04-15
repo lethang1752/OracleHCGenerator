@@ -171,7 +171,6 @@ class MainWindow(QMainWindow):
         self._init_ui()
         self._apply_modern_shadows()
         self._load_stylesheet()
-        self._ensure_tools_extracted()
         logger.info(f"Application started: {APP_NAME} v{APP_VERSION}")
     
     def _center(self):
@@ -386,6 +385,8 @@ class MainWindow(QMainWindow):
         
         self.node_list_widget = QListWidget()
         self.node_list_widget.setSelectionMode(QAbstractItemView.NoSelection)
+        self.node_list_widget.setAcceptDrops(True)
+        self.node_list_widget.installEventFilter(self)
         folder_layout.addWidget(self.node_list_widget)
         
         folder_group.setLayout(folder_layout)
@@ -402,7 +403,6 @@ class MainWindow(QMainWindow):
         self.num_days_spin.setValue(NUM_DAYS_ALERT)
         self.num_days_spin.setRange(1, 365)
         self.num_days_spin.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.num_days_spin.setMinimumHeight(32) # Match QLineEdit height
         settings_layout.addWidget(self.num_days_spin, 1, 0)
         
         # Column 1: Document Font
@@ -410,14 +410,12 @@ class MainWindow(QMainWindow):
         self.font_combo = QComboBox()
         self.font_combo.addItems(["Times New Roman", "Calibri"])
         self.font_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.font_combo.setMinimumHeight(32) # Match QLineEdit height
         settings_layout.addWidget(self.font_combo, 1, 1)
         
         # Column 2-3: Custom Filename (Giving more width)
         settings_layout.addWidget(QLabel("Custom Filename (Optional):"), 0, 2)
         self.filename_input = QLineEdit()
         self.filename_input.setPlaceholderText("Auto-generated if empty")
-        self.filename_input.setMinimumHeight(32)
         settings_layout.addWidget(self.filename_input, 1, 2)
         
         # Adjusting column stretches to make Column 0 and 1 narrower
@@ -467,6 +465,8 @@ class MainWindow(QMainWindow):
         config_layout.addWidget(QLabel("Input Log Folder (OSWBB):"), 0, 0)
         self.oswbb_input_dir = QLineEdit()
         self.oswbb_input_dir.setPlaceholderText("Select the OSWBB archive folder...")
+        self.oswbb_input_dir.setAcceptDrops(True)
+        self.oswbb_input_dir.installEventFilter(self)
         config_layout.addWidget(self.oswbb_input_dir, 0, 1)
         btn_browse_in = QPushButton("Browse")
         btn_browse_in.setObjectName("browse_btn")
@@ -476,6 +476,8 @@ class MainWindow(QMainWindow):
         config_layout.addWidget(QLabel("Output Images Folder:"), 1, 0)
         self.oswbb_output_dir = QLineEdit()
         self.oswbb_output_dir.setPlaceholderText("Select where to save generated graphs...")
+        self.oswbb_output_dir.setAcceptDrops(True)
+        self.oswbb_output_dir.installEventFilter(self)
         config_layout.addWidget(self.oswbb_output_dir, 1, 1)
         btn_browse_out = QPushButton("Browse")
         btn_browse_out.setObjectName("browse_btn")
@@ -485,7 +487,6 @@ class MainWindow(QMainWindow):
         config_layout.addWidget(QLabel("Analysis Tool (JAR):"), 2, 0)
         self.oswbb_jar_select = QComboBox()
         self.oswbb_jar_select.addItems(["oswbba9020.jar", "oswbba.jar"])
-        self.oswbb_jar_select.setMinimumHeight(32)
         config_layout.addWidget(self.oswbb_jar_select, 2, 1)
         
         config_layout.setColumnStretch(1, 1)
@@ -629,20 +630,50 @@ class MainWindow(QMainWindow):
 
     # ── Drag & Drop Handling ─────────────────────────────────────────
     def eventFilter(self, watched, event):
-        if (watched == self.push_target_list or watched == self.merge_file_list) and event.type() == QEvent.DragEnter:
+        # Safely identify if the watched widget is one of our drag & drop targets
+        # using getattr to avoid AttributeError during early initialization
+        targets = [
+            getattr(self, 'node_list_widget', None),
+            getattr(self, 'push_target_list', None),
+            getattr(self, 'merge_file_list', None),
+            getattr(self, 'oswbb_input_dir', None),
+            getattr(self, 'oswbb_output_dir', None),
+            getattr(self, 'merge_output_path', None)
+        ]
+        
+        # Filter out None values in case some widgets aren't initialized yet
+        targets = [t for t in targets if t is not None]
+        if watched in targets and event.type() == QEvent.DragEnter:
             if event.mimeData().hasUrls():
                 event.accept()
                 return True
-        if (watched == self.push_target_list or watched == self.merge_file_list) and event.type() == QEvent.Drop:
-            for url in event.mimeData().urls():
-                path = url.toLocalFile()
-                if watched == self.push_target_list:
-                    if Path(path).is_dir() and path not in self.oswbb_push_folders:
-                        self.oswbb_push_folders.append(path)
+        if watched in targets and event.type() == QEvent.Drop:
+            urls = event.mimeData().urls()
+            if not urls: return False
+            path = urls[0].toLocalFile()
+            
+            if watched == self.node_list_widget:
+                for u in urls:
+                    p = u.toLocalFile()
+                    if Path(p).is_dir() and p not in self.log_folders:
+                        self.log_folders.append(p)
+                        self.node_list_widget.addItem(f"Node {len(self.log_folders)}: {p}")
+                return True
+            elif watched == self.push_target_list:
+                for u in urls:
+                    p = u.toLocalFile()
+                    if Path(p).is_dir() and p not in self.oswbb_push_folders:
+                        self.oswbb_push_folders.append(p)
                         self._update_push_target_list()
-                else: # merge_file_list
-                    if path.lower().endswith(".docx"):
-                        self._merge_add_direct(path)
+                return True
+            elif watched == self.merge_file_list:
+                for u in urls:
+                    p = u.toLocalFile()
+                    if p.lower().endswith(".docx"): self._merge_add_direct(p)
+                return True
+            elif isinstance(watched, QLineEdit):
+                watched.setText(path)
+                return True
             return True
         return super().eventFilter(watched, event)
 
@@ -878,6 +909,8 @@ class MainWindow(QMainWindow):
         self.merge_file_list.setDragDropOverwriteMode(False)
         self.merge_file_list.setDefaultDropAction(Qt.MoveAction)
         self.merge_file_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.merge_file_list.setAcceptDrops(True)
+        self.merge_file_list.installEventFilter(self)
         self.merge_file_list.setMinimumHeight(200)
         queue_layout.addWidget(self.merge_file_list)
 
@@ -919,6 +952,8 @@ class MainWindow(QMainWindow):
         output_grid.addWidget(QLabel("Save Merged File As:"), 0, 0)
         self.merge_output_path = QLineEdit()
         self.merge_output_path.setPlaceholderText("Select destination file path (.docx)...")
+        self.merge_output_path.setAcceptDrops(True)
+        self.merge_output_path.installEventFilter(self)
         output_grid.addWidget(self.merge_output_path, 0, 1)
 
         btn_browse_merge = QPushButton("Browse")
@@ -1017,7 +1052,6 @@ class MainWindow(QMainWindow):
 
     def _on_refresh_tools_clicked(self):
         """Manual check and refresh for tool list"""
-        self._ensure_tools_extracted()
         self._refresh_tools_list()
         self.statusBar().showMessage("Đã cập nhật danh sách công cụ cục bộ.", 3000)
 
@@ -1042,17 +1076,6 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage(f"Đầu bộ thất bại: {message}", 5000)
 
-    def _ensure_tools_extracted(self):
-        """Nếu chạy từ EXE, tự động bung thư mục tool ra ngoài nếu chưa có"""
-        if getattr(sys, 'frozen', False):
-            # Trong chế độ Bundle, PyInstaller giải nén vào sys._MEIPASS
-            bundle_tools = Path(getattr(sys, '_MEIPASS')) / "HC_collect_tool"
-            if bundle_tools.exists() and not COLLECT_TOOL_DIR.exists():
-                try:
-                    logger.info(f"Extracting tools from {bundle_tools} to {COLLECT_TOOL_DIR}")
-                    shutil.copytree(str(bundle_tools), str(COLLECT_TOOL_DIR))
-                except Exception as e:
-                    logger.error(f"Failed to auto-extract tools: {e}")
 
     # ── Merge tab slots ────────────────────────────────────────────
     def _merge_add_files(self):
