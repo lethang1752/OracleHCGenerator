@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 class ComprehensiveHealthcareReportGenerator:
     """Generates the comprehensive health check report (DOCX)"""
     
+    # Pre-compiled regex patterns for performance
+    NUMERIC_RE = re.compile(r'^-?[\d,.]+\s*%?$')
+    TIME_RE = re.compile(r'^[\d.]+\s*(us|ms|s)$', re.I)
+    DATE_RE = re.compile(r'^[\d]{2,4}[-/][a-zA-Z\d]{2,3}[-/][\d]{2,4}')
+    
     def __init__(self, output_path: str, font_option: str = 'times'):
         self.output_path = output_path
         self.font_option = font_option.lower()
@@ -33,6 +38,10 @@ class ComprehensiveHealthcareReportGenerator:
             if template_path.exists():
                 self.doc = Document(str(template_path))
                 logger.info(f"Initialized with template: {template_path}")
+                # Remove initial empty paragraphs often found in templates
+                while len(self.doc.paragraphs) > 0 and not self.doc.paragraphs[0].text.strip():
+                    p = self.doc.paragraphs[0]._element
+                    p.getparent().remove(p)
             else:
                 logger.warning(f"Template {template_path} not found. Using default document.")
                 self.doc = Document()
@@ -848,115 +857,148 @@ class ComprehensiveHealthcareReportGenerator:
                     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
     def _set_cell_widths(self, tbl, widths):
-        """Helper to force widths at cell level and set table layout to fixed"""
-        # 1. Set individual cell widths
-        for i, row in enumerate(tbl.rows):
-            for j, cell in enumerate(row.cells):
-                if j < len(widths):
-                    cell.width = widths[j]
-        
-        # 2. Force Table Width and Layout in XML
+        """Helper to force widths efficiently - Sets grid and first row only"""
+        # 1. Set Table Grid (W:tblGrid) - Essential for layout
         tbl_pr = tbl._element.xpath('w:tblPr')[0]
-        # Remove any existing w:tblW
-        for e in tbl_pr.xpath('w:tblW'):
-            tbl_pr.remove(e)
         
+        # Ensure w:tblLayout is fixed
+        existing_layout = tbl_pr.xpath('w:tblLayout')
+        if not existing_layout:
+            tbl_layout = parse_xml(f'<w:tblLayout {nsdecls("w")} w:type="fixed"/>')
+            tbl_pr.append(tbl_layout)
+        else:
+            existing_layout[0].set(qn('w:type'), 'fixed')
+
+        # Set Table Width
+        existing_w = tbl_pr.xpath('w:tblW')
         total_twips = sum(w.twips for w in widths)
-        tbl_w = parse_xml(f'<w:tblW {nsdecls("w")} w:w="{total_twips}" w:type="dxa"/>')
-        tbl_pr.append(tbl_w)
+        if not existing_w:
+            tbl_w = parse_xml(f'<w:tblW {nsdecls("w")} w:w="{total_twips}" w:type="dxa"/>')
+            tbl_pr.append(tbl_w)
+        else:
+            existing_w[0].set(qn('w:w'), str(total_twips))
+            existing_w[0].set(qn('w:type'), 'dxa')
+
+        # 2. Set Grid Columns (Direct XML for global structure)
+        grid_xml = f'<w:tblGrid {nsdecls("w")}>'
+        for w in widths:
+            grid_xml += f'<w:gridCol w:w="{w.twips}"/>'
+        grid_xml += '</w:tblGrid>'
         
-        # Force Layout to fixed
-        tbl_layout = parse_xml(f'<w:tblLayout {nsdecls("w")} w:type="fixed"/>')
-        tbl_pr.append(tbl_layout)
+        # Insert tblGrid after tblPr (index 0)
+        tbl_grid = tbl._element.xpath('w:tblGrid')
+        if tbl_grid:
+            tbl._element.remove(tbl_grid[0])
+        tbl._element.insert(1, parse_xml(grid_xml))
+
+        # 3. Set widths for EVERY cell (Restoring "Hard Format" but efficiently)
+        # We use table._cells flat list to make it fast O(N*M) but with low overhead
+        all_cells = tbl._cells
+        num_cols = len(widths)
+        for idx, cell in enumerate(all_cells):
+            col_idx = idx % num_cols
+            if col_idx < num_cols:
+                cell.width = widths[col_idx]
                         
     def _create_table_from_rows(self, rows: List[List[str]], max_rows: int = 20, truncate_length: int = 100,
                                align_left_cols: List[int] = None, align_center_cols: List[int] = None,
                                align_right_cols_forced: List[int] = None, col_widths: List[float] = None,
                                font_size: int = 10):
-        """Create DOCX table from row data"""
+        """Create DOCX table from row data - Optimized for large datasets"""
         if not rows:
-            return
+            return None
         
         if max_rows is not None:
             rows = rows[:max_rows]
-        cols = max(len(row) for row in rows) if rows else 1
+            
+        num_rows = len(rows)
+        num_cols = max(len(row) for row in rows) if rows else 1
         
-        table = self.doc.add_table(rows=len(rows), cols=cols)
+        table = self.doc.add_table(rows=num_rows, cols=num_cols)
         table.style = 'Table Grid'
         table.autofit = False
         
-        # Force column widths at the cell level (essential for DOCX stability)
-        if col_widths and len(col_widths) >= cols:
-            calc_widths = col_widths[:cols]
+        # Force column widths efficiently
+        if col_widths and len(col_widths) >= num_cols:
+            calc_widths = col_widths[:num_cols]
         else:
-            calc_widths = [Cm(16.4 / cols)] * cols
+            calc_widths = [Cm(16.4 / num_cols)] * num_cols
             
         self._set_cell_widths(table, calc_widths)
 
-        # Check for numeric-friendly headers
-        align_right_cols = []
-        header = [str(c).upper() for c in rows[0]] if rows else []
-        for idx, h in enumerate(header):
-            if any(term in h for term in ["WAIT", "TIME", "COUNT", "SIZE", "PERCENT", "%", "DATE", "VAL", "WAITS"]):
-                align_right_cols.append(idx)
+        # Pre-determine alignment strategies per column based on header
+        col_align_strategies = [] # List of (align_right, align_center)
+        header = [str(c).upper() for c in rows[0]]
         
+        for j in range(num_cols):
+            h_text = header[j] if j < len(header) else ""
+            align_right = any(term in h_text for term in ["WAIT", "TIME", "COUNT", "SIZE", "PERCENT", "%", "DATE", "VAL", "WAITS"])
+            align_center = False
+            
+            if align_left_cols and j in align_left_cols:
+                align_right = False
+            if align_center_cols and j in align_center_cols:
+                align_right = False
+                align_center = True
+            if align_right_cols_forced and j in align_right_cols_forced:
+                align_right = True
+                align_center = False
+            
+            col_align_strategies.append((align_right, align_center))
+
+        # Fill table using flat cells list for much faster access
+        all_cells = table._cells
         for i, row_data in enumerate(rows):
-            cells = table.rows[i].cells
             for j, cell_text in enumerate(row_data):
-                if j < cols:
-                    text_val = str(cell_text)
-                    if truncate_length is not None:
-                        text_val = text_val[:truncate_length]
-                    cells[j].text = text_val
-                    cells[j].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                if j >= num_cols: continue
+                
+                idx = i * num_cols + j
+                cell = all_cells[idx]
+                
+                text_val = str(cell_text)
+                if truncate_length is not None:
+                    text_val = text_val[:truncate_length]
+                
+                cell.text = text_val
+                cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                
+                # Apply alignment
+                para = cell.paragraphs[0]
+                if i == 0:
+                    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                else:
+                    align_right, align_center = col_align_strategies[j]
                     
-                    # Improved regex for numbers, percentages, times and dates
-                    val_clean = text_val.strip()
-                    is_numeric = bool(re.match(r'^-?[\d,.]+\s*%?$', val_clean))
-                    is_time = bool(re.match(r'^[\d.]+\s*(us|ms|s)$', val_clean, re.I))
-                    is_date = bool(re.match(r'^[\d]{2,4}[-/][a-zA-Z\d]{2,3}[-/][\d]{2,4}', val_clean))
+                    # FINE-GRAINED NUMERIC CHECK: Only if not explicitly aligned by caller
+                    is_explicitly_aligned = (align_left_cols and j in align_left_cols) or \
+                                            (align_center_cols and j in align_center_cols) or \
+                                            (align_right_cols_forced and j in align_right_cols_forced)
+
+                    if not is_explicitly_aligned:
+                        val_clean = text_val.strip()
+                        if len(val_clean) <= 20 or " " not in val_clean:
+                            if self.NUMERIC_RE.match(val_clean) or self.TIME_RE.match(val_clean) or self.DATE_RE.match(val_clean):
+                                align_right = True
                     
-                    # Determine alignment
-                    align_right = is_numeric or is_time or is_date or (j in align_right_cols)
-                    align_center = False
-                    
-                    # Force Left-align if explicitly requested
-                    if align_left_cols and j in align_left_cols:
-                        align_right = False
-                    
-                    # Force Center-align if explicitly requested
-                    if align_center_cols and j in align_center_cols:
-                        align_right = False
-                        align_center = True
-                        
-                    # Force Right-align if explicitly requested
-                    if align_right_cols_forced and j in align_right_cols_forced:
-                        align_right = True
-                        align_center = False
-                    
-                    # Manual Override for specific text patterns that shouldn't be right-aligned
-                    if len(val_clean) > 20 and " " in val_clean:
-                        align_right = False
-                        align_center = False
-                    
-                    # Header should be center/left, but data should be aligned
-                    for para in cells[j].paragraphs:
-                        if i > 0:
-                            if align_center:
-                                para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                            elif align_right:
-                                para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                            else:
-                                para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-                        else:
-                            # Headers are always centered
-                            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                        for run in para.runs:
-                            run.font.name = self.font_name
-                            run.font.size = Pt(font_size)
+                    if align_center:
+                        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    elif align_right:
+                        para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                    else:
+                        para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                
+                # Set font
+                for run in para.runs:
+                    run.font.name = self.font_name
+                    run.font.size = Pt(font_size)
         
-        self._format_table_header(table.rows[0])
+        # Restore header formatting (Navy Blue, White text, Bold)
+        if num_rows > 0:
+            self._format_table_header(table.rows[0])
+            
+        # Add spacing after table
         self.doc.add_paragraph()
+        
         return table
     
     def save(self) -> bool:

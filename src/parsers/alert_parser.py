@@ -30,6 +30,7 @@ class AlertError:
     
     def _extract_error_code(self, message: str) -> str:
         """Extract ORA error code from message"""
+        if not message: return None
         match = re.search(r'ORA-\d+', message)
         return match.group(0) if match else None
     
@@ -44,6 +45,10 @@ class AlertError:
 
 class AlertLogParser(BaseParser):
     """Parse Oracle Alert Logs"""
+    
+    # Pre-compiled regex for performance
+    TIMESTAMP_12C_RE = re.compile(r'^[2][0][0-9]{2}[-][0-9]{2}[-][0-9]{2}[T][0-9]{2}[:][0-9]{2}[:][0-9]{2}')
+    TIMESTAMP_11G_RE = re.compile(r'^\w{3} \w{3} \d{2} \d{2}:\d{2}:\d{2} \d{4}$')
     
     def __init__(self, log_dir: str, num_days: int = NUM_DAYS_ALERT):
         """
@@ -61,46 +66,106 @@ class AlertLogParser(BaseParser):
     
     def parse(self) -> bool:
         """
-        Parse alert log files
-        
-        Returns:
-            True if successful, False if failed
+        Parse alert log files efficiently by reading backward from the end
         """
         try:
-            # Find alert log file
             alert_files = list(Path(self.log_dir).glob(ALERT_LOG_PATTERN))
-            
             if not alert_files:
                 self.add_error(f"No alert log found in {self.log_dir}")
                 return False
             
             alert_file = alert_files[0]
-            logger.info(f"Parsing alert log: {alert_file}")
+            logger.info(f"Parsing alert log (Optimized/Reverse): {alert_file}")
             
-            # Extract instance name from filename (alert_<instance_name>.log)
-            filename = alert_file.stem  # Gets 'alert_drewallet1' from 'alert_drewallet1.log'
-            if filename.startswith('alert_'):
-                self.instance_name = filename.replace('alert_', '')
-            else:
-                self.instance_name = filename
+            # Extract instance name
+            filename = alert_file.stem
+            self.instance_name = filename.replace('alert_', '') if filename.startswith('alert_') else filename
             
-            logger.info(f"Instance name: {self.instance_name}")
-            
-            # Calculate cutoff date based on file's last modified time (like PS1)
-            import os
+            # Calculate cutoff date
             mtime = os.path.getmtime(alert_file)
             file_time = datetime.fromtimestamp(mtime)
             cutoff_date = file_time - timedelta(days=self.num_days)
             
-            with open(alert_file, 'r', encoding='utf-8', errors='ignore') as f:
-                self._parse_stream(f, cutoff_date)
+            # Read and parse backward
+            self._parse_backward(alert_file, cutoff_date)
             
             logger.info(f"Found {len(self.alerts)} errors in last {self.num_days} days")
             return True
-        
         except Exception as e:
             self.add_error("Failed to parse alert log", e)
             return False
+
+    def _parse_backward(self, file_path: Path, cutoff_date: datetime):
+        """Read file from end in chunks and stop when date reached"""
+        chunk_size = 65536 # 64KB
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            f.seek(0, os.SEEK_END)
+            file_size = f.tell()
+            pointer = file_size
+            
+            buffer = ""
+            current_message_lines = []
+            
+            while pointer > 0:
+                step = min(pointer, chunk_size)
+                pointer -= step
+                f.seek(pointer)
+                
+                new_chunk = f.read(step)
+                buffer = new_chunk + buffer
+                lines = buffer.splitlines()
+                
+                # Keep the first line fragment in the buffer for the next iteration (it belongs to the previous chunk)
+                if pointer > 0:
+                    buffer = lines[0]
+                    lines_to_process = lines[1:]
+                else:
+                    buffer = ""
+                    lines_to_process = lines
+                
+                # Process lines from this chunk in reverse
+                for line in reversed(lines_to_process):
+                    # 1. Check for 12c Timestamp
+                    is_12c = self._is_timestamp_12c(line)
+                    if is_12c:
+                        try:
+                            ts = datetime.strptime(line[:19], DATETIME_FORMAT_12C)
+                            if ts < cutoff_date:
+                                return # STOP: Reached date threshold
+                            
+                            # Valid timestamp found, finalize previous message block
+                            self._check_and_save_reverse_block(line[:19], current_message_lines)
+                            current_message_lines = []
+                        except:
+                            pass
+                        continue
+                    
+                    # 2. Check for 11g Timestamp
+                    is_11g = self._is_timestamp_11g(line)
+                    if is_11g:
+                        try:
+                            ts = datetime.strptime(line, DATETIME_FORMAT_11G)
+                            if ts < cutoff_date:
+                                return # STOP
+                            
+                            ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S")
+                            self._check_and_save_reverse_block(ts_str, current_message_lines)
+                            current_message_lines = []
+                        except:
+                            pass
+                        continue
+                        
+                    # 3. Accumulated non-timestamp line
+                    current_message_lines.insert(0, line)
+    
+    def _check_and_save_reverse_block(self, timestamp: str, lines: List[str]):
+        """Check if block contains ORA error and save"""
+        is_ora = any(l.startswith('ORA-') for l in lines)
+        if is_ora:
+            first_ora = next((l for l in lines if l.startswith('ORA-')), "")
+            full_text = '\n'.join(lines)
+            self.alerts.append(AlertError(timestamp, first_ora, first_ora, full_text))
+            # Sort later since we are getting them newest first
     
     def _parse_stream(self, stream, cutoff_date: datetime):
         """Parse alert log stream"""
@@ -158,18 +223,16 @@ class AlertLogParser(BaseParser):
             self._save_alert(current_timestamp, current_message)
     
     def _is_timestamp_12c(self, line: str) -> bool:
-        """Check if line is 12c timestamp"""
-        if len(line) != 32:
+        """Fast check then Regex for 12c timestamp"""
+        if len(line) < 19 or line[0] != '2': # Quick filter
             return False
-        pattern = r'^[2][0][0-9]{2}[-][0-9]{2}[-][0-9]{2}[T][0-9]{2}[:][0-9]{2}[:][0-9]{2}'
-        return bool(re.match(pattern, line))
+        return bool(self.TIMESTAMP_12C_RE.match(line))
     
     def _is_timestamp_11g(self, line: str) -> bool:
-        """Check if line is 11g timestamp"""
-        if len(line) != 24:
+        """Fast check then Regex for 11g timestamp"""
+        if len(line) < 24 or not line[0].isalpha(): # Quick filter
             return False
-        pattern = r'^\w{3} \w{3} \d{2} \d{2}:\d{2}:\d{2} \d{4}$'
-        return bool(re.match(pattern, line))
+        return bool(self.TIMESTAMP_11G_RE.match(line))
     
     def _save_alert(self, timestamp: str, message_lines: List[str]):
         """Save alert to list - capture full error block"""

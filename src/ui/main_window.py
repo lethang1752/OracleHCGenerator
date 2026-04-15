@@ -29,6 +29,7 @@ from ..config import (
 )
 from ..utils import setup_logger, sanitize_filename
 from ..utils.github_sync_worker import GitHubSyncWorker
+from ..utils.generator_worker import GeneratorWorker
 
 logger = setup_logger(__name__)
 
@@ -266,7 +267,6 @@ class MainWindow(QMainWindow):
         self.sidebar.addItem(QListWidgetItem("⚙ Appendix Generator"))
         self.sidebar.addItem(QListWidgetItem("📊 OSWBB Graph Generator"))
         self.sidebar.addItem(QListWidgetItem("📄 Merge Documents"))
-        self.sidebar.addItem(QListWidgetItem("🔍 Data Preview"))
         
         # Bottom Sidebar for support tools
         self.sidebar_footer = QListWidget()
@@ -313,8 +313,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self._create_main_tab())       # Index 0
         self.stack.addWidget(self._create_oswbb_tab())      # Index 1
         self.stack.addWidget(self._create_merge_tab())      # Index 2
-        self.stack.addWidget(self._create_preview_tab())    # Index 3
-        self.stack.addWidget(self._create_tools_tab())      # Index 4
+        self.stack.addWidget(self._create_tools_tab())      # Index 3
         
         content_layout.addWidget(self.stack)
         main_layout.addWidget(content_container)
@@ -338,10 +337,10 @@ class MainWindow(QMainWindow):
             self.sidebar_footer.setCurrentRow(-1)
             self.sidebar_footer.blockSignals(False)
             
-            # Index 0-3 in main sidebar corresponds directly to index 0-3 in stack
+            # Index 0-2 in main sidebar corresponds directly to index 0-2 in stack
             self.stack.setCurrentIndex(index)
             # Update title
-            titles = ["APPENDIX GENERATOR", "OSWBB GRAPH GENERATOR", "MERGE DOCUMENTS", "DATA PREVIEW"]
+            titles = ["APPENDIX GENERATOR", "OSWBB GRAPH GENERATOR", "MERGE DOCUMENTS"]
             if index < len(titles):
                 self.section_title.setText(titles[index])
 
@@ -353,8 +352,8 @@ class MainWindow(QMainWindow):
             self.sidebar.setCurrentRow(-1)
             self.sidebar.blockSignals(False)
             
-            # "Collection Tools" is the only item in footer, corresponds to index 4 in stack
-            self.stack.setCurrentIndex(4)
+            # "Collection Tools" is the only item in footer, corresponds to index 3 in stack
+            self.stack.setCurrentIndex(3)
             self.section_title.setText("COLLECTION TOOLS")
             
             # Auto-sync logic
@@ -569,49 +568,6 @@ class MainWindow(QMainWindow):
         widget.setLayout(layout)
         return widget
     
-    def _create_preview_tab(self) -> QWidget:
-        widget = QWidget()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(10, 10, 10, 10)
-        
-        # Title label removed as requested
-        
-        preview_tabs = QTabWidget()
-        # Đảm bảo tab bar đủ cao và không rút gọn chữ (elide)
-        preview_tabs.tabBar().setFixedHeight(60) 
-        preview_tabs.tabBar().setElideMode(Qt.ElideNone)
-        
-        self.alerts_table = QTableWidget()
-        self.alerts_table.setColumnCount(3)
-        self.alerts_table.setHorizontalHeaderLabels(["Node ID", "Timestamp", "Error Code"])
-        self.alerts_table.horizontalHeader().setStretchLastSection(True)
-        self.alerts_table.horizontalHeader().setFixedHeight(55) # Header bảng cũng cần cao ráo
-        self.alerts_table.setColumnWidth(0, 100) # Node ID
-        self.alerts_table.setColumnWidth(1, 250) # Timestamp (tăng chiều rộng)
-        self.alerts_table.verticalHeader().hide()
-        preview_tabs.addTab(self.alerts_table, "Alert Logs")
-        
-        self.awr_table = QTableWidget()
-        self.awr_table.setColumnCount(2)
-        self.awr_table.setHorizontalHeaderLabels(["Node ID", "Tables Found"])
-        self.awr_table.horizontalHeader().setStretchLastSection(True)
-        self.awr_table.horizontalHeader().setFixedHeight(55)
-        self.awr_table.setColumnWidth(0, 100)
-        self.awr_table.verticalHeader().hide()
-        preview_tabs.addTab(self.awr_table, "AWR Summary")
-        
-        self.db_info_table = QTableWidget()
-        self.db_info_table.setColumnCount(2)
-        self.db_info_table.setHorizontalHeaderLabels(["Node ID", "Sections Found"])
-        self.db_info_table.horizontalHeader().setStretchLastSection(True)
-        self.db_info_table.horizontalHeader().setFixedHeight(55)
-        self.db_info_table.setColumnWidth(0, 100)
-        self.db_info_table.verticalHeader().hide()
-        preview_tabs.addTab(self.db_info_table, "HTML Summary")
-        
-        layout.addWidget(preview_tabs)
-        widget.setLayout(layout)
-        return widget
 
     def _add_node_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Node Folder")
@@ -771,7 +727,6 @@ class MainWindow(QMainWindow):
     def _on_parse_finished(self, data: dict):
         self.parsed_data = data
         self._log("[SUCCESS] All data parsed successfully!")
-        self._show_preview(data)
         self._run_generation_and_finalize()
     
     def _on_parse_error(self, error_msg: str):
@@ -780,35 +735,6 @@ class MainWindow(QMainWindow):
         self.generate_btn.setEnabled(True)
         QMessageBox.critical(self, "Parse Error", error_msg)
     
-    def _show_preview(self, data: dict):
-        nodes = data.get('nodes', [])
-        
-        # Calculate total alerts
-        total_alerts = sum(len(n['alerts'].get('alerts', [])) for n in nodes)
-        self.alerts_table.setRowCount(total_alerts)
-        
-        self.awr_table.setRowCount(len(nodes))
-        self.db_info_table.setRowCount(len(nodes))
-        
-        row_alert = 0
-        for i, node in enumerate(nodes):
-            node_id = str(node['node_id'])
-            # Alerts
-            for alert in node['alerts'].get('alerts', []):
-                self.alerts_table.setItem(row_alert, 0, QTableWidgetItem(f"Node {node_id}"))
-                self.alerts_table.setItem(row_alert, 1, QTableWidgetItem(alert.get('timestamp', '')))
-                self.alerts_table.setItem(row_alert, 2, QTableWidgetItem(alert.get('error_code', '')))
-                row_alert += 1
-            
-            # AWR summary
-            table_count = str(node['awr'].get('table_count', 0))
-            self.awr_table.setItem(i, 0, QTableWidgetItem(f"Node {node_id}"))
-            self.awr_table.setItem(i, 1, QTableWidgetItem(table_count))
-            
-            # DB Info summary
-            db_sections = str(len(node.get('database_info', {})))
-            self.db_info_table.setItem(i, 0, QTableWidgetItem(f"Node {node_id}"))
-            self.db_info_table.setItem(i, 1, QTableWidgetItem(db_sections))
 
     def _on_generate_clicked(self):
         if not self.log_folders:
@@ -823,11 +749,9 @@ class MainWindow(QMainWindow):
         self._on_parse_clicked()
 
     def _run_generation_and_finalize(self):
-        self.progress_bar.setValue(92)
         self._log("Initializing dynamic multi-node report generation...")
         try:
             font_choice = self.font_combo.currentText()
-            self.progress_bar.setValue(95)
             
             # Calculate Base DB Name
             nodes = self.parsed_data.get('nodes', [])
@@ -846,24 +770,43 @@ class MainWindow(QMainWindow):
             filename = self.filename_input.text() or default_filename
             filename = sanitize_filename(filename)
             
-            docx_path = OUTPUT_DIR / f"{filename}.docx"
+            docx_path = str(OUTPUT_DIR / f"{filename}.docx")
             font_token = 'times' if 'times' in font_choice.lower() else 'calibri'
-            gen = ComprehensiveHealthcareReportGenerator(str(docx_path), font_option=font_token)
-            if gen.generate_from_parsed_data(self.parsed_data):
-                self._log(f"[SUCCESS] Report saved: {docx_path}")
-                QMessageBox.information(self, "Complete", f"Workflow completed successfully!\nFile: {filename}.docx")
-            else:
-                self._log("[ERROR] Report generation failed.")
-                QMessageBox.warning(self, "Failed", "Data was parsed but document generation failed.")
-        
+            
+            # Create and start Generator Worker in background
+            self.gen_thread = QThread()
+            self.gen_worker = GeneratorWorker(self.parsed_data, docx_path, font_token, filename)
+            self.gen_worker.moveToThread(self.gen_thread)
+            
+            self.gen_thread.started.connect(self.gen_worker.run)
+            self.gen_worker.progress.connect(self._on_parse_progress)
+            self.gen_worker.finished.connect(self._on_generation_finished)
+            self.gen_worker.finished.connect(self.gen_thread.quit)
+            self.gen_worker.finished.connect(self.gen_worker.deleteLater)
+            self.gen_thread.finished.connect(self.gen_thread.deleteLater)
+            
+            self.gen_thread.start()
+            
         except Exception as e:
-            self._log(f"[ERROR] Fault: {str(e)}")
-            logger.exception("Generator error")
-            QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
-        finally:
+            self._log(f"[ERROR] Fault initiating generator: {str(e)}")
+            logger.exception("Generator initiation error")
             self.progress_bar.setVisible(False)
             self.generate_btn.setEnabled(True)
-            self.statusBar().showMessage("Workflow Finished")
+
+    def _on_generation_finished(self, success: bool, docx_path: str, filename: str):
+        """Callback when background generation completes"""
+        self.progress_bar.setVisible(False)
+        self.generate_btn.setEnabled(True)
+        self.statusBar().showMessage("Workflow Finished")
+        
+        if success:
+            self._log(f"[SUCCESS] Report saved: {docx_path}")
+            QMessageBox.information(self, "Complete", f"Workflow completed successfully!\nFile: {filename}.docx")
+        else:
+            # If docx_path contains error message (from GeneratorWorker)
+            error_msg = docx_path if docx_path else "Unknown error"
+            self._log(f"[ERROR] Report generation failed: {error_msg}")
+            QMessageBox.warning(self, "Failed", f"Data was parsed but document generation failed:\n{error_msg}")
     
     def _log(self, message: str):
         self.log_text.append(message)
