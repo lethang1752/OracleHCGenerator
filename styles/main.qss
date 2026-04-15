@@ -355,3 +355,17 @@ QTabBar::tab:hover:!selected {
     background-color: #F6F6F6;
 }
 
+/* Status Bar */
+QStatusBar {
+    background-color: #EBEBEB;
+    border-top: 1px solid #D1D1D1;
+    color: #5D5D5D;
+    font-size: 13px;
+    min-height: 28px;
+    max-height: 28px;
+}
+
+QStatusBar::item {
+    border: none;
+}
+

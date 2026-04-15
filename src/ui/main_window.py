@@ -24,9 +24,11 @@ from ..parsers import AlertLogParser, AWRParser, DatabaseInfoParser
 from ..generators.comprehensive_report_generator import ComprehensiveHealthcareReportGenerator
 from ..config import (
     APP_NAME, APP_VERSION, WINDOW_WIDTH, WINDOW_HEIGHT,
-    NUM_DAYS_ALERT, OUTPUT_DIR, COLLECT_TOOL_DIR
+    NUM_DAYS_ALERT, OUTPUT_DIR, COLLECT_TOOL_DIR,
+    GITHUB_TOOLS_API_URL, AUTO_SYNC_TOOLS
 )
 from ..utils import setup_logger, sanitize_filename
+from ..utils.github_sync_worker import GitHubSyncWorker
 
 logger = setup_logger(__name__)
 
@@ -158,6 +160,12 @@ class MainWindow(QMainWindow):
         self.oswbb_push_folders = []
         self.parsed_data = None
         self.parse_worker = None
+        self.github_worker = None
+        self.has_auto_synced = False
+        
+        # Explicitly initialize Status Bar to prevent UI jumping
+        self.setStatusBar(QStatusBar(self))
+        self.statusBar().showMessage("Sẵn sàng")
         
         self._init_ui()
         self._apply_modern_shadows()
@@ -348,6 +356,10 @@ class MainWindow(QMainWindow):
             # "Collection Tools" is the only item in footer, corresponds to index 4 in stack
             self.stack.setCurrentIndex(4)
             self.section_title.setText("COLLECTION TOOLS")
+            
+            # Auto-sync logic
+            if AUTO_SYNC_TOOLS and not self.has_auto_synced:
+                self._on_sync_github_clicked()
 
     def _create_main_tab(self) -> QWidget:
         widget = QWidget()
@@ -1003,15 +1015,20 @@ class MainWindow(QMainWindow):
         # Action Buttons Row
         btn_layout = QHBoxLayout()
         
-        btn_refresh = QPushButton("🔄 Refresh List")
+        btn_refresh = QPushButton("🔄 Refresh Local")
         btn_refresh.setObjectName("secondary_action_btn")
         btn_refresh.clicked.connect(self._on_refresh_tools_clicked)
         
-        btn_open_folder = QPushButton("📂 Open Collection Folder")
-        btn_open_folder.setObjectName("main_action_btn")
+        btn_sync_github = QPushButton("🌐 Sync from GitHub")
+        btn_sync_github.setObjectName("main_action_btn")
+        btn_sync_github.clicked.connect(self._on_sync_github_clicked)
+        
+        btn_open_folder = QPushButton("📂 Open Folder")
+        btn_open_folder.setObjectName("secondary_action_btn")
         btn_open_folder.clicked.connect(self._on_open_tools_folder)
         
         btn_layout.addWidget(btn_refresh)
+        btn_layout.addWidget(btn_sync_github)
         btn_layout.addWidget(btn_open_folder)
         layout.addLayout(btn_layout)
         
@@ -1041,7 +1058,28 @@ class MainWindow(QMainWindow):
         """Manual check and refresh for tool list"""
         self._ensure_tools_extracted()
         self._refresh_tools_list()
-        self.statusBar().showMessage("Đã cập nhật danh sách công cụ.", 3000)
+        self.statusBar().showMessage("Đã cập nhật danh sách công cụ cục bộ.", 3000)
+
+    def _on_sync_github_clicked(self):
+        """Khởi chạy đồng bộ từ GitHub"""
+        if self.github_worker and self.github_worker.isRunning():
+            return
+            
+        self.has_auto_synced = True # Mark as حاول (even if fails, we don't spam)
+        self.statusBar().showMessage("Đang đồng bộ công cụ từ GitHub...")
+        
+        self.github_worker = GitHubSyncWorker()
+        self.github_worker.progress.connect(lambda p, m: self.statusBar().showMessage(f"{m} ({p}%)"))
+        self.github_worker.finished.connect(self._on_github_sync_finished)
+        self.github_worker.error.connect(lambda e: QMessageBox.warning(self, "Lỗi đồng bộ", e))
+        self.github_worker.start()
+
+    def _on_github_sync_finished(self, success: bool, message: str):
+        if success:
+            self._refresh_tools_list()
+            self.statusBar().showMessage("Đồng bộ GitHub hoàn tất!", 5000)
+        else:
+            self.statusBar().showMessage(f"Đầu bộ thất bại: {message}", 5000)
 
     def _ensure_tools_extracted(self):
         """Nếu chạy từ EXE, tự động bung thư mục tool ra ngoài nếu chưa có"""

@@ -97,3 +97,7 @@ REPORT_FIELDS = {
     "instance_node2": "Instance Node 2",
     "backup_policy": "Backup Policy",
 }
+
+# GitHub Sync
+GITHUB_TOOLS_API_URL = "https://api.github.com/repos/lethang1752/github_work/contents/HC_collect_tool?ref=master"
+AUTO_SYNC_TOOLS = True
