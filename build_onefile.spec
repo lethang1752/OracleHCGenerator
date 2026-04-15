@@ -8,7 +8,8 @@ a = Analysis(
         ('styles', 'styles'),
         ('oswbb', 'oswbb'),
         ('dist/jre_mini', 'jre_mini'),
-        ('HC_collect_tool', 'HC_collect_tool')
+        ('HC_collect_tool', 'HC_collect_tool'),
+        ('template_docx', 'template_docx')
     ],
     hiddenimports=[],
     hookspath=[],
@@ -39,5 +40,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='styles/icon.ico'
+    icon='styles/app_icon.ico'
 )

@@ -15,6 +15,8 @@ from docx.oxml.ns import nsdecls, qn
 from docx.oxml import parse_xml
 import re
 
+from ..config import TEMPLATE_DIR
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,7 +34,7 @@ class ComprehensiveHealthcareReportGenerator:
         
         # Select template based on font option
         template_name = 'timenr_template.docx' if self.font_option == 'times' else 'calibri_template.docx'
-        template_path = Path('template_docx') / template_name
+        template_path = TEMPLATE_DIR / template_name
         
         try:
             if template_path.exists():

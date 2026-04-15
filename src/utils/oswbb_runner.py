@@ -22,11 +22,47 @@ class OSWBBGraphGenerator(QObject):
         self.push_mode = push_mode # "overwrite" | "timestamp"
         self.jar_filename = jar_filename
         self.process = None
+        self.temp_filtered_dir = None
+        
+        self.ALLOWED_FOLDERS = [
+            'oswcpuinfo', 'oswiostat', 'oswmeminfo', 
+            'oswnetstat', 'oswvmstat'
+        ]
 
     def run(self):
         """Tiến trình chính chạy trong Worker Thread"""
         self._run_java_process()
 
+    def stop(self):
+        """Dừng tiến trình Java cưỡng bách"""
+        if self.process and self.process.poll() is None:
+            try:
+                self.progress.emit("[SYSTEM] Đang yêu cầu dừng tiến trình...")
+                self.process.kill()
+                self._cleanup_temp_dir()
+                self.progress.emit("[SYSTEM] Tiến trình đã bị dừng bởi người dùng.")
+            except Exception as e:
+                self.progress.emit(f"[ERROR] Không thể dừng tiến trình: {e}")
+
+    def _cleanup_temp_dir(self):
+        """Dọn dẹp thư mục junctions tạm thời"""
+        if self.temp_filtered_dir and self.temp_filtered_dir.exists():
+            try:
+                # On Windows, we need to remove junctions carefully
+                # os.remove() or os.unlink() works on junctions as well
+                for item in self.temp_filtered_dir.iterdir():
+                    if item.is_dir():
+                        if os.name == 'nt':
+                            subprocess.run(f'rmdir "{item}"', shell=True, capture_output=True)
+                        else:
+                            os.unlink(item)
+                
+                import shutil
+                shutil.rmtree(self.temp_filtered_dir)
+                self.progress.emit("[CLEANUP] Đã dọn dẹp thư mục lọc tạm thời.")
+            except Exception as e:
+                self.progress.emit(f"[WARNING] Không thể tự động dọn dẹp folder tạm: {e}")
+        
     def _get_base_path(self) -> Path:
         if getattr(sys, 'frozen', False):
             return Path(sys._MEIPASS)
@@ -71,8 +107,38 @@ class OSWBBGraphGenerator(QObject):
                 self.finished.emit(False)
                 return
 
-            # Build output directory
-            os.makedirs(self.output_folder, exist_ok=True)
+            # --- FILTERING LOGIC ---
+            self.progress.emit("[INFO] Đang lọc dữ liệu chỉ lấy 5 nhóm thông số quan trọng để tăng tốc...")
+            import tempfile
+            import time
+            # Use system temp directory to avoid OneDrive sync locks (Access Denied)
+            self.temp_filtered_dir = Path(tempfile.gettempdir()) / f"osw_filter_{int(time.time())}"
+            try:
+                self.temp_filtered_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Create junctions for allowed folders
+                source_root = Path(self.log_folder)
+                found_any = False
+                for folder_name in self.ALLOWED_FOLDERS:
+                    src_sub = source_root / folder_name
+                    if src_sub.exists() and src_sub.is_dir():
+                        dest_sub = self.temp_filtered_dir / folder_name
+                        # Use mklink /J on Windows for fast directory junctions
+                        if os.name == 'nt':
+                            subprocess.run(f'mklink /J "{dest_sub}" "{src_sub}"', shell=True, capture_output=True)
+                        else:
+                            os.symlink(src_sub, dest_sub, target_is_directory=True)
+                        found_any = True
+                
+                if not found_any:
+                    self.progress.emit("[WARNING] Không thấy 5 thư mục osw* tiêu chuẩn, gửi toàn bộ thư mục gốc cho Java.")
+                    analysis_input = os.path.normpath(self.log_folder)
+                else:
+                    analysis_input = os.path.normpath(str(self.temp_filtered_dir))
+                    self.progress.emit("[INFO] Đã chuẩn bị bộ dữ liệu tinh gọn.")
+            except Exception as e:
+                self.progress.emit(f"[ERROR] Lỗi khi tạo folder lọc: {e}. Quay lại dùng folder gốc.")
+                analysis_input = os.path.normpath(self.log_folder)
 
             # Build command list
             cmd = [
@@ -85,13 +151,19 @@ class OSWBBGraphGenerator(QObject):
             if self.gen_dashboard:
                 # Option D: Dashboard (Non-interactive)
                 # Put -i first to ensure validation passes
-                cmd.extend(["-i", os.path.normpath(self.log_folder), "-D"])
+                cmd.extend(["-i", analysis_input, "-D"])
             else:
                 # Standard Interactive Mode (i.e. generate GIFs)
-                cmd.extend(["-i", os.path.normpath(self.log_folder)])
+                cmd.extend(["-i", analysis_input])
 
-            self.progress.emit(f"[INFO] Khởi chạy Java: {' '.join(cmd)}")
+            self.progress.emit(f"[INFO] Khởi chạy Java (Low-Impact Mode): {' '.join(cmd)}")
             
+            # Windows specific: Lower priority to keep system responsive
+            creation_flags = 0
+            if os.name == 'nt':
+                # CREATE_NO_WINDOW (0x08000000) | BELOW_NORMAL_PRIORITY_CLASS (0x4000)
+                creation_flags = 0x08000000 | 0x00004000
+
             # Run Process with stdin/stdout pipes
             self.process = subprocess.Popen(
                 cmd,
@@ -100,7 +172,7 @@ class OSWBBGraphGenerator(QObject):
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                creationflags=creation_flags
             )
 
             # Track if we have triggered the automation
@@ -160,6 +232,7 @@ class OSWBBGraphGenerator(QObject):
                     self.progress.emit("[WARNING] Không tìm thấy thư mục 'generated_files' sau khi chạy Option D.")
             
             # --- END OF MAIN PROCESSING ---
+            self._cleanup_temp_dir()
             
             if return_code == 0 or automation_triggered or self.gen_dashboard:
                 # 3. PUSH RESULTS (New Feature)
@@ -179,7 +252,6 @@ class OSWBBGraphGenerator(QObject):
             self.progress.emit("[ERROR] Lỗi: Không thể tìm thấy trình khởi chạy Java (java.exe).")
             self.progress.emit("[ERROR] Nguyên nhân: Bạn chưa cài đặt Java trên máy (phiên bản DEV) hoặc chưa đóng gói JRE thu nhỏ.")
             self.progress.emit(">> Để khắc phục: Vui lòng chạy file scripts\\create_jre_mini.bat trên một máy có cài JDK để đóng gói JRE đi kèm ứng dụng.")
-            self.finished.emit(False)
             self.finished.emit(False)
         except Exception as e:
             self.progress.emit(f"[EXCEPTION] Lỗi khi triệu gọi Java: {str(e)}")
@@ -237,8 +309,10 @@ class OSWBBGraphGenerator(QObject):
             if not any(Path(self.output_folder).iterdir()):
                 self.progress.emit("[ERROR] Không có dữ liệu kết quả để Push.")
                 return False
-            # If standard GIFs, we might want to push the entire output folder
-            source_gen = Path(self.output_folder)
+            # If generated_files is missing, do not fall back to the entire directory 
+            # to avoid copying the whole project/app root.
+            self.progress.emit("[ERROR] Không tìm thấy thư mục 'generated_files'. Không thể thực hiện Push.")
+            return False
             
         self.progress.emit(f"[SYNC] Bắt đầu đẩy dữ liệu tới {len(self.push_targets)} mục tiêu...")
         
@@ -258,12 +332,27 @@ class OSWBBGraphGenerator(QObject):
                 
                 if final_dest.exists():
                     if self.push_mode == "overwrite":
-                        shutil.rmtree(final_dest)
-                    # If timestamp mode, the name is already unique due to seconds, 
-                    # but if it exists, shutil.copytree will fail if not handled.
+                        if not self._robust_rmtree(final_dest):
+                            self.progress.emit(f"[WARNING] Không thể ghi đè '{final_dest}', folder đang bị khóa bởi tiến trình khác (có thể là OneDrive).")
+                            continue # Try next target
                 
-                shutil.copytree(str(source_gen), str(final_dest))
-                self.progress.emit(f"[SUCCESS] Đã đẩy tới {target}")
+                # Robust Copy with retries
+                copy_success = False
+                for attempt in range(3):
+                    try:
+                        shutil.copytree(str(source_gen), str(final_dest))
+                        copy_success = True
+                        break
+                    except Exception as e:
+                        if attempt < 2:
+                            self.progress.emit(f"[RETRY] Thử lại sao chép ({attempt+1}/3)...")
+                            import time
+                            time.sleep(1)
+                        else:
+                            self.progress.emit(f"[ERROR] Không thể sao chép tới {final_dest}: {e}")
+                
+                if copy_success:
+                    self.progress.emit(f"[SUCCESS] Đã đẩy tới {target}")
                 
             return True
         except Exception as e:

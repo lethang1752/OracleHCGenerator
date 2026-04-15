@@ -484,7 +484,7 @@ class MainWindow(QMainWindow):
         
         config_layout.addWidget(QLabel("Analysis Tool (JAR):"), 2, 0)
         self.oswbb_jar_select = QComboBox()
-        self.oswbb_jar_select.addItems(["oswbba.jar", "oswbba9020.jar"])
+        self.oswbb_jar_select.addItems(["oswbba9020.jar", "oswbba.jar"])
         self.oswbb_jar_select.setMinimumHeight(32)
         config_layout.addWidget(self.oswbb_jar_select, 2, 1)
         
@@ -550,8 +550,15 @@ class MainWindow(QMainWindow):
         self.gen_push_oswbb_btn.setObjectName("main_action_btn")
         self.gen_push_oswbb_btn.clicked.connect(lambda: self._on_generate_oswbb_clicked(push=True))
         
+        self.stop_oswbb_btn = QPushButton("🛑 STOP")
+        self.stop_oswbb_btn.setObjectName("clear_btn")
+        self.stop_oswbb_btn.setEnabled(False)
+        self.stop_oswbb_btn.setFixedWidth(100)
+        self.stop_oswbb_btn.clicked.connect(self._on_stop_oswbb_clicked)
+        
         action_layout.addWidget(self.gen_oswbb_btn)
         action_layout.addWidget(self.gen_push_oswbb_btn)
+        action_layout.addWidget(self.stop_oswbb_btn)
         layout.addLayout(action_layout)
         
         # 4. CONSOLE LOG
@@ -672,6 +679,7 @@ class MainWindow(QMainWindow):
         from ..utils.oswbb_runner import OSWBBGraphGenerator
         self.gen_oswbb_btn.setEnabled(False)
         self.gen_push_oswbb_btn.setEnabled(False)
+        self.stop_oswbb_btn.setEnabled(True)
         self.oswbb_log_text.append("[SYSTEM] Khởi chạy máy chủ đồ họa OSWBB Java...")
         
         push_targets = self.oswbb_push_folders if push else []
@@ -707,10 +715,18 @@ class MainWindow(QMainWindow):
     def _on_oswbb_finished(self, success: bool):
         self.gen_oswbb_btn.setEnabled(True)
         self.gen_push_oswbb_btn.setEnabled(True)
+        self.stop_oswbb_btn.setEnabled(False)
         if success:
             QMessageBox.information(self, "Thành công", "Tiến trình OSWBB hoàn tất. Vui lòng kiểm tra thư mục đích!")
         else:
+            # We don't show error box if user stopped it manually (process return code -1 or similar)
+            # but currently we just rely on log info
             QMessageBox.warning(self, "Lỗi Java", "Tiến trình thu thập ảnh gặp lỗi hoặc quá trình Push thất bại, kiểm tra console log.")
+
+    def _on_stop_oswbb_clicked(self):
+        if hasattr(self, 'oswbb_worker') and self.oswbb_worker:
+            self.oswbb_worker.stop()
+            self.stop_oswbb_btn.setEnabled(False)
 
     def _on_parse_clicked(self):
         num_days = self.num_days_spin.value()
