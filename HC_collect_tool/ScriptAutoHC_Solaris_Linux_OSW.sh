@@ -308,7 +308,13 @@ END{
 #-----Check_Cluster
 
 echo "<p>+ CHECK_CLUSTER<p>" >>$file_name
-crsctl check crs | $awk -v hs=$host 'BEGIN{print("<p><table WIDTH='90%' BORDER='1'><tr><th>HOST_NAME</th><th>CLUSTER_SERVICE</th></tr><tr><td>",hs"</td><td>")}
+# Determine which check command to use
+if crsctl check crs 2>&1 | grep -q "invalid argument"; then
+    crs_cmd="crsctl check has"
+else
+    crs_cmd="crsctl check crs"
+fi
+$crs_cmd | $awk -v hs=$host 'BEGIN{print("<p><table WIDTH='90%' BORDER='1'><tr><th>HOST_NAME</th><th>CLUSTER_SERVICE</th></tr><tr><td>",hs"</td><td>")}
 {
 	if ($0!=NULL) {
 		print($0,"<br>")
