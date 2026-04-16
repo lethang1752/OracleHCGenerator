@@ -22,11 +22,14 @@ class ExaWatcherGraphGenerator(QObject):
     progress = pyqtSignal(str)
     finished = pyqtSignal(bool)
 
-    def __init__(self, db_node_folder: str, cell_node_folder: str, output_folder: str):
+    def __init__(self, db_node_folder: str, cell_node_folder: str, output_folder: str, 
+                 push_targets: list = None, push_mode: str = "overwrite"):
         super().__init__()
         self.db_node_folder = Path(db_node_folder)
         self.cell_node_folder = Path(cell_node_folder)
         self.output_folder = Path(output_folder)
+        self.push_targets = push_targets or []
+        self.push_mode = push_mode # "overwrite" | "timestamp"
         self._stop_requested = False
 
     def stop(self):
@@ -38,16 +41,16 @@ class ExaWatcherGraphGenerator(QObject):
             self.progress.emit(f"[INFO] Bắt đầu xử lý ExaWatcher từ 2 nguồn...")
 
             # 1. Process CPU & Memory (Source A: DB/VM)
-            if self.db_node_folder.exists():
+            if self.db_node_folder and self.db_node_folder.exists() and self.db_node_folder.is_dir():
                 self._process_cpu_mem()
             else:
-                self.progress.emit(f"[WARN] Thư mục DB/VM không tồn tại: {self.db_node_folder}")
+                self.progress.emit(f"[WARN] Thư mục DB/VM không hợp lệ hoặc không tồn tại.")
 
             # 2. Process IO (Source B: Cell)
-            if self.cell_node_folder.exists():
+            if self.cell_node_folder and self.cell_node_folder.exists() and self.cell_node_folder.is_dir():
                 self._process_io()
             else:
-                self.progress.emit(f"[WARN] Thư mục Cell không tồn tại: {self.cell_node_folder}")
+                self.progress.emit(f"[WARN] Thư mục Cell không hợp lệ hoặc không tồn tại.")
 
             if self._stop_requested:
                 self.progress.emit("[INFO] Đã dừng theo yêu cầu người dùng.")
@@ -55,12 +58,96 @@ class ExaWatcherGraphGenerator(QObject):
                 return
 
             self.progress.emit(f"[SUCCESS] Hoàn tất tạo biểu đồ ExaWatcher tại: {self.output_folder}")
+            
+            # 3. PUSH RESULTS (Synchronize files to target folders)
+            if self.push_targets:
+                push_success = self._push_results()
+                if not push_success:
+                    self.finished.emit(False)
+                    return
+
             self.finished.emit(True)
 
         except Exception as e:
             logger.error(f"ExaWatcher processing failed: {e}", exc_info=True)
             self.progress.emit(f"[ERROR] Lỗi xử lý: {str(e)}")
             self.finished.emit(False)
+
+    def _robust_rmtree(self, path):
+        """Robustly delete directory, handling read-only files and retries"""
+        import time
+        import shutil
+        import os
+        import stat
+
+        def remove_readonly(func, path, excinfo):
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+
+        for i in range(3):
+            try:
+                if os.path.exists(path):
+                    shutil.rmtree(path, onerror=remove_readonly)
+                return True
+            except Exception:
+                time.sleep(0.5)
+        return False
+
+    def _push_results(self) -> bool:
+        """Copy generated images to target folders"""
+        import shutil
+        import datetime
+        from pathlib import Path
+        
+        # We push all files from the output_folder
+        if not self.output_folder.exists() or not any(self.output_folder.iterdir()):
+            self.progress.emit("[ERROR] Không có dữ liệu kết quả để Push.")
+            return False
+            
+        self.progress.emit(f"[SYNC] Bắt đầu đẩy dữ liệu tới {len(self.push_targets)} mục tiêu...")
+        
+        try:
+            for target in self.push_targets:
+                target_path = Path(target)
+                if not target_path.exists():
+                    self.progress.emit(f"[SKIP] Thư mục đích không tồn tại: {target}")
+                    continue
+                
+                # Determine folder name
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                folder_name = f"exawatcher_files_{timestamp}" if self.push_mode == "timestamp" else "exawatcher_files"
+                final_dest = target_path / folder_name
+                
+                self.progress.emit(f"[COPYING] Đang sao chép tới {final_dest}...")
+                
+                if final_dest.exists():
+                    if self.push_mode == "overwrite":
+                        if not self._robust_rmtree(final_dest):
+                            self.progress.emit(f"[WARNING] Không thể ghi đè '{final_dest}', folder đang bị khóa.")
+                            continue
+                
+                # Robust Copy with retries
+                copy_success = False
+                for attempt in range(3):
+                    try:
+                        shutil.copytree(str(self.output_folder), str(final_dest))
+                        copy_success = True
+                        break
+                    except Exception as e:
+                        if attempt < 2:
+                            import time
+                            time.sleep(1)
+                        else:
+                            self.progress.emit(f"[ERROR] Không thể sao chép tới {final_dest}: {e}")
+                
+                if copy_success:
+                    self.progress.emit(f"[SUCCESS] Đã đẩy tới {target}")
+                
+            return True
+        except Exception as e:
+            self.progress.emit(f"[CRITICAL ERROR] Quá trình Push thất bại: {str(e)}")
+            return False
+
 
     def _extract_js_var(self, html_content: str, var_names: List[str]) -> Dict:
         """Extract JavaScript variable values using regex (supports 'var x=', 'self.x =')"""

@@ -160,6 +160,7 @@ class MainWindow(QMainWindow):
         
         self.log_folders = []
         self.oswbb_push_folders = []
+        self.exa_push_folders = [] # New list for ExaWatcher
         self.exa_db_input_dir = None
         self.exa_cell_input_dir = None
         self.exa_output_dir = None
@@ -471,7 +472,7 @@ class MainWindow(QMainWindow):
         
         config_layout.addWidget(QLabel("Input Log Folder (OSWBB):"), 0, 0)
         self.oswbb_input_dir = QLineEdit()
-        self.oswbb_input_dir.setPlaceholderText("Select the OSWBB archive folder...")
+        self.oswbb_input_dir.setPlaceholderText("Select the OSWBB archive folder (oswcpuinfo, etc)...")
         self.oswbb_input_dir.setAcceptDrops(True)
         self.oswbb_input_dir.installEventFilter(self)
         config_layout.addWidget(self.oswbb_input_dir, 0, 1)
@@ -482,7 +483,7 @@ class MainWindow(QMainWindow):
         
         config_layout.addWidget(QLabel("Output Images Folder:"), 1, 0)
         self.oswbb_output_dir = QLineEdit()
-        self.oswbb_output_dir.setPlaceholderText("Select where to save generated graphs...")
+        self.oswbb_output_dir.setPlaceholderText("Empty = Default 'generated_files' in application folder")
         self.oswbb_output_dir.setAcceptDrops(True)
         self.oswbb_output_dir.installEventFilter(self)
         config_layout.addWidget(self.oswbb_output_dir, 1, 1)
@@ -575,7 +576,7 @@ class MainWindow(QMainWindow):
         log_layout.setContentsMargins(12, 8, 12, 10)
         self.oswbb_log_text = QTextEdit()
         self.oswbb_log_text.setReadOnly(True)
-        self.oswbb_log_text.setMinimumHeight(80) 
+        self.oswbb_log_text.setMinimumHeight(100) 
         log_layout.addWidget(self.oswbb_log_text)
         log_group.setLayout(log_layout)
         layout.addWidget(log_group, 1)
@@ -622,7 +623,7 @@ class MainWindow(QMainWindow):
         # Output
         config_layout.addWidget(QLabel("Output Images Folder:"), 2, 0)
         self.exa_output_dir = QLineEdit()
-        self.exa_output_dir.setPlaceholderText("Select where to save generated graphs...")
+        self.exa_output_dir.setPlaceholderText("Empty = Default 'exawatcher_files' in application folder")
         self.exa_output_dir.setAcceptDrops(True)
         self.exa_output_dir.installEventFilter(self)
         config_layout.addWidget(self.exa_output_dir, 2, 1)
@@ -635,12 +636,60 @@ class MainWindow(QMainWindow):
         config_group.setLayout(config_layout)
         layout.addWidget(config_group)
         
-        # 2. ACTIONS
+        push_group = QGroupBox("2. TARGET FOLDERS FOR SYNC")
+        push_layout = QVBoxLayout()
+        push_layout.setSpacing(10)
+        
+        # Action row for targets
+        push_btn_row = QHBoxLayout()
+        btn_add_target = QPushButton("➕ Add Target Folders")
+        btn_add_target.setObjectName("browse_btn")
+        btn_add_target.clicked.connect(self._on_exa_add_push_folder)
+        
+        btn_clear_target = QPushButton("🗑 Clear All")
+        btn_clear_target.setObjectName("clear_btn")
+        btn_clear_target.clicked.connect(self._on_exa_clear_push_folders)
+        
+        self.exa_push_mode_overwrite = QRadioButton("Overwrite")
+        self.exa_push_mode_timestamp = QRadioButton("Timestamp Subfolder")
+        self.exa_push_mode_overwrite.setMinimumWidth(100)
+        self.exa_push_mode_timestamp.setMinimumWidth(170)
+        self.exa_push_mode_overwrite.setChecked(True)
+        
+        push_btn_row.addWidget(btn_add_target)
+        push_btn_row.addWidget(btn_clear_target)
+        push_btn_row.addStretch()
+        push_btn_row.addWidget(QLabel("Push Mode:"))
+        push_btn_row.addWidget(self.exa_push_mode_overwrite)
+        push_btn_row.addWidget(self.exa_push_mode_timestamp)
+        push_layout.addLayout(push_btn_row)
+        
+        # Target list
+        self.exa_push_target_list = QListWidget()
+        self.exa_push_target_list.setObjectName("merge_list") 
+        self.exa_push_target_list.setDragDropMode(QAbstractItemView.InternalMove)
+        self.exa_push_target_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.exa_push_target_list.setMinimumHeight(120) 
+        self.exa_push_target_list.setAcceptDrops(True)
+        self.exa_push_target_list.installEventFilter(self) 
+        push_layout.addWidget(self.exa_push_target_list)
+        
+        push_layout.setContentsMargins(12, 10, 12, 12) 
+        push_layout.setSpacing(10)
+        
+        push_group.setLayout(push_layout)
+        layout.addWidget(push_group, 2)
+        
+        # 3. ACTIONS
         action_layout = QHBoxLayout()
         action_layout.setSpacing(15)
         self.gen_exa_btn = QPushButton("🖻 GENERATE IMAGES")
-        self.gen_exa_btn.setObjectName("main_action_btn")
-        self.gen_exa_btn.clicked.connect(self._on_generate_exawatcher_clicked)
+        self.gen_exa_btn.setObjectName("secondary_action_btn")
+        self.gen_exa_btn.clicked.connect(lambda: self._on_generate_exawatcher_clicked(push=False))
+        
+        self.gen_push_exa_btn = QPushButton("🚀 GENERATE & PUSH")
+        self.gen_push_exa_btn.setObjectName("main_action_btn")
+        self.gen_push_exa_btn.clicked.connect(lambda: self._on_generate_exawatcher_clicked(push=True))
         
         self.stop_exa_btn = QPushButton("🛑 STOP")
         self.stop_exa_btn.setObjectName("clear_btn")
@@ -649,21 +698,20 @@ class MainWindow(QMainWindow):
         self.stop_exa_btn.clicked.connect(self._on_stop_exawatcher_clicked)
         
         action_layout.addWidget(self.gen_exa_btn)
+        action_layout.addWidget(self.gen_push_exa_btn)
         action_layout.addWidget(self.stop_exa_btn)
         layout.addLayout(action_layout)
         
-        # 3. CONSOLE LOG
+        # 4. CONSOLE LOG
         log_group = QGroupBox("EXAWATCHER PROCESSING LOG")
         log_layout = QVBoxLayout()
         log_layout.setContentsMargins(12, 8, 12, 10)
         self.exa_log_text = QTextEdit()
         self.exa_log_text.setReadOnly(True)
-        self.exa_log_text.setMinimumHeight(150) 
+        self.exa_log_text.setMinimumHeight(100) 
         log_layout.addWidget(self.exa_log_text)
         log_group.setLayout(log_layout)
         layout.addWidget(log_group, 1)
-
-        layout.addStretch() # Push everything up
         
         widget.setLayout(layout)
         return widget
@@ -716,17 +764,36 @@ class MainWindow(QMainWindow):
         self.push_target_list.clear()
         for folder in self.oswbb_push_folders:
             item = QListWidgetItem(folder)
-            # Add tooltip for long paths
             item.setToolTip(folder)
             self.push_target_list.addItem(item)
+
+    def _on_exa_add_push_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Target Folder", "", QFileDialog.ShowDirsOnly)
+        if folder:
+            path = str(Path(folder))
+            if path not in self.exa_push_folders:
+                self.exa_push_folders.append(path)
+                self._update_exa_push_target_list()
+
+    def _on_exa_clear_push_folders(self):
+        self.exa_push_folders.clear()
+        self._update_exa_push_target_list()
+
+    def _update_exa_push_target_list(self):
+        self.exa_push_target_list.clear()
+        for folder in self.exa_push_folders:
+            item = QListWidgetItem(folder)
+            # Add tooltip for long paths
+            item.setToolTip(folder)
+            self.exa_push_target_list.addItem(item)
 
     # ── Drag & Drop Handling ─────────────────────────────────────────
     def eventFilter(self, watched, event):
         # Safely identify if the watched widget is one of our drag & drop targets
-        # using getattr to avoid AttributeError during early initialization
         targets = [
             getattr(self, 'node_list_widget', None),
             getattr(self, 'push_target_list', None),
+            getattr(self, 'exa_push_target_list', None), # Added new target
             getattr(self, 'merge_file_list', None),
             getattr(self, 'oswbb_input_dir', None),
             getattr(self, 'oswbb_output_dir', None),
@@ -736,7 +803,6 @@ class MainWindow(QMainWindow):
             getattr(self, 'merge_output_path', None)
         ]
         
-        # Filter out None values in case some widgets aren't initialized yet
         targets = [t for t in targets if t is not None]
         if watched in targets and event.type() == QEvent.DragEnter:
             if event.mimeData().hasUrls():
@@ -760,6 +826,13 @@ class MainWindow(QMainWindow):
                     if Path(p).is_dir() and p not in self.oswbb_push_folders:
                         self.oswbb_push_folders.append(p)
                         self._update_push_target_list()
+                return True
+            elif watched == self.exa_push_target_list: # Added logic for ExaWatcher
+                for u in urls:
+                    p = u.toLocalFile()
+                    if Path(p).is_dir() and p not in self.exa_push_folders:
+                        self.exa_push_folders.append(p)
+                        self._update_exa_push_target_list()
                 return True
             elif watched == self.merge_file_list:
                 for u in urls:
@@ -792,11 +865,19 @@ class MainWindow(QMainWindow):
             self.oswbb_output_dir.setText(folder)
 
     def _on_generate_oswbb_clicked(self, push=False):
-        in_dir = self.oswbb_input_dir.text()
-        out_dir = self.oswbb_output_dir.text()
-        if not in_dir or not out_dir:
-            QMessageBox.warning(self, "Missing fields", "Please select input and output directories.")
+        in_dir = self.oswbb_input_dir.text().strip()
+        out_dir = self.oswbb_output_dir.text().strip()
+        
+        if not in_dir:
+            QMessageBox.warning(self, "Missing fields", "Please select input OSWBB directory.")
             return
+
+        # Default output path if empty
+        if not out_dir:
+            from ..config import BASE_DIR
+            out_dir = str(BASE_DIR / "generated_files")
+            self.oswbb_output_dir.setText(out_dir)
+            self._log(f"[INFO] Automatically selected OSWBB output folder: {out_dir}")
             
         if push and not self.oswbb_push_folders:
             QMessageBox.warning(self, "No Targets", "Please add at least one target folder to push results.")
@@ -1365,22 +1446,42 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")
         if folder: self.exa_output_dir.setText(folder)
 
-    def _on_generate_exawatcher_clicked(self):
-        db_in = self.exa_db_input_dir.text()
-        cell_in = self.exa_cell_input_dir.text()
-        out_dir = self.exa_output_dir.text()
+    def _on_generate_exawatcher_clicked(self, push=False):
+        db_in = self.exa_db_input_dir.text().strip()
+        cell_in = self.exa_cell_input_dir.text().strip()
+        out_dir = self.exa_output_dir.text().strip()
         
-        if not db_in or not cell_in or not out_dir:
-            QMessageBox.warning(self, "Missing fields", "Please select all required directories.")
+        if not db_in or not cell_in:
+            QMessageBox.warning(self, "Missing fields", "Please select DB and Cell log directories.")
+            return
+
+        # Default output path if empty
+        if not out_dir:
+            from ..config import BASE_DIR
+            out_dir = str(BASE_DIR / "exawatcher_files")
+            self.exa_output_dir.setText(out_dir)
+            self.exa_log_text.append(f"[INFO] Automatically selected ExaWatcher output folder: {out_dir}")
+
+        if push and not self.exa_push_folders:
+            QMessageBox.warning(self, "No Targets", "Please add at least one target folder to push results.")
             return
 
         self.gen_exa_btn.setEnabled(False)
+        self.gen_push_exa_btn.setEnabled(False)
         self.stop_exa_btn.setEnabled(True)
         self.exa_log_text.clear()
         self.exa_log_text.append("[SYSTEM] Khởi chạy bộ xử lý ExaWatcher...")
 
+        push_targets = self.exa_push_folders if push else []
+        push_mode = "timestamp" if self.exa_push_mode_timestamp.isChecked() else "overwrite"
+
         self.exa_thread = QThread()
-        self.exa_worker = ExaWatcherGraphGenerator(db_in, cell_in, out_dir)
+        from ..utils.exawatcher_runner import ExaWatcherGraphGenerator
+        self.exa_worker = ExaWatcherGraphGenerator(
+            db_in, cell_in, out_dir,
+            push_targets=push_targets,
+            push_mode=push_mode
+        )
         self.exa_worker.moveToThread(self.exa_thread)
 
         self.exa_thread.started.connect(self.exa_worker.run)
@@ -1398,6 +1499,7 @@ class MainWindow(QMainWindow):
 
     def _on_exawatcher_finished(self, success: bool):
         self.gen_exa_btn.setEnabled(True)
+        self.gen_push_exa_btn.setEnabled(True)
         self.stop_exa_btn.setEnabled(False)
         if success:
             QMessageBox.information(self, "Thành công", "Tiến trình ExaWatcher hoàn tất!")
