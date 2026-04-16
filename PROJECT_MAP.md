@@ -5,10 +5,10 @@
 
 ### Các tính năng chính:
 - **Phân tích song song (Parallel Parsing):** Xử lý AWR Reports, Alert Logs và System Information từ nhiều Node cùng lúc.
-- **Tích hợp OSWBB v9020:** Tự động tạo đồ thị hiệu năng hệ điều hành và đồng bộ đa thư mục mục tiêu.
-- **Hệ thống Kéo & Thả (Universal Drag & Drop):** Hỗ trợ kéo thả file/folder vào mọi ô nhập liệu và danh sách.
+- **Tích hợp OSWBB & ExaWatcher:** Tự động tạo đồ thị hiệu năng (CPU, Memory, IO) và hỗ trợ cơ chế đồng bộ (Push) đa thư mục mục tiêu.
+- **Hệ thống Kéo & Thả (Universal Drag & Drop):** Hỗ trợ kéo thả file/folder vào mọi ô nhập liệu và danh sách (bao gồm cả danh sách đồng bộ).
 - **Báo cáo chuẩn hóa:** Xuất file Word (`.docx`) với định dạng bảng biểu 16.4cm, tự động map SQL ID.
-- **Giao diện Windows 11 Fluent:** Thiết kế hiện đại, tối ưu hóa kích thước (Standard Height 28px).
+- **Giao diện Windows 11 Fluent:** Thiết kế hiện đại, tối ưu hóa kích thước (Standard Height 28px), đồng bộ chiều cao giữa các module.
 
 ## Cấu trúc File/Thư mục hiện tại
 ```text
@@ -42,4 +42,4 @@ NewApplication/
 - **Đóng gói:** PyInstaller One-file (JRE mini đi kèm trong dist/)
 
 ---
-*Cập nhật lần cuối: 15/04/2026*
+*Cập nhật lần cuối: 16/04/2026*

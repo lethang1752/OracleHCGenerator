@@ -197,9 +197,12 @@ parsed_data = {
 - **1.8 Dataguard:** Hiện trả về `"SUCCESS"/"0"` cứng → cần nguồn dữ liệu thực từ Data Guard logs.
 - **1.7.2 Scheduling:** Text backup schedule là hardcode → có thể cho phép user cấu hình.
 
-### [ẢNH OSWBB] Điều kiện tiên quyết:
-Các section 1.3.1, 1.3.2, 1.3.3 đọc file `.jpg` từ `node['data_dir']/generated_files/`.  
-**Ảnh phải được tạo trước** bằng tính năng **OSWBB Graph Generator** — nếu không ảnh sẽ bị bỏ qua silently.
+### [ẢNH OSWBB & EXAWATCHER] Điều kiện tiên quyết:
+Các section 1.3.1, 1.3.2, 1.3.3 đọc file `.jpg`/`.gif`/`.png` từ `node['data_dir']/generated_files/` hoặc `exawatcher_files/`.  
+**Quy tắc thư mục mặc định (v2.3.0):**
+- Nếu không chọn Output Folder, OSWBB sẽ tạo folder `generated_files` tại thư mục chứa file `.exe`.
+- Nếu không chọn Output Folder, ExaWatcher sẽ tạo folder `exawatcher_files` tại thư mục chứa file `.exe`.
+- **Tính năng Sync:** Hỗ trợ đẩy (Push) các folder ảnh này vào các thư mục Node đích (Target Folders for Sync) ngay sau khi tạo xong.
 
 ### [CHỈ NODE 0] Các section không lặp qua tất cả node:
 Các section `1.3.7`, `1.3.8`, `1.3.9`, `1.3.10`, `1.4.x`, `1.5.2`, `1.7`, `1.9` chỉ đọc từ `nodes[0]`.  
@@ -212,4 +215,4 @@ Trong `_add_filtered_sql_text_table()`:
 
 ---
 
-*Cập nhật lần cuối: 14/04/2026*
+*Cập nhật lần cuối: 16/04/2026*
