@@ -30,6 +30,7 @@ from ..config import (
 from ..utils import setup_logger, sanitize_filename
 from ..utils.github_sync_worker import GitHubSyncWorker
 from ..utils.generator_worker import GeneratorWorker
+from ..utils.exawatcher_runner import ExaWatcherGraphGenerator
 
 logger = setup_logger(__name__)
 
@@ -159,6 +160,9 @@ class MainWindow(QMainWindow):
         
         self.log_folders = []
         self.oswbb_push_folders = []
+        self.exa_db_input_dir = None
+        self.exa_cell_input_dir = None
+        self.exa_output_dir = None
         self.parsed_data = None
         self.parse_worker = None
         self.github_worker = None
@@ -265,6 +269,7 @@ class MainWindow(QMainWindow):
         # Main sidebar for core features
         self.sidebar.addItem(QListWidgetItem("⚙ Appendix Generator"))
         self.sidebar.addItem(QListWidgetItem("📊 OSWBB Graph Generator"))
+        self.sidebar.addItem(QListWidgetItem("📈 ExaWatcher Graph Generator"))
         self.sidebar.addItem(QListWidgetItem("📄 Merge Documents"))
         
         # Bottom Sidebar for support tools
@@ -311,8 +316,9 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.stack.addWidget(self._create_main_tab())       # Index 0
         self.stack.addWidget(self._create_oswbb_tab())      # Index 1
-        self.stack.addWidget(self._create_merge_tab())      # Index 2
-        self.stack.addWidget(self._create_tools_tab())      # Index 3
+        self.stack.addWidget(self._create_exawatcher_tab()) # Index 2 (ExaWatcher)
+        self.stack.addWidget(self._create_merge_tab())      # Index 3
+        self.stack.addWidget(self._create_tools_tab())      # Index 4
         
         content_layout.addWidget(self.stack)
         main_layout.addWidget(content_container)
@@ -336,10 +342,11 @@ class MainWindow(QMainWindow):
             self.sidebar_footer.setCurrentRow(-1)
             self.sidebar_footer.blockSignals(False)
             
-            # Index 0-2 in main sidebar corresponds directly to index 0-2 in stack
+            # Index 0-2 in main sidebar corresponds directly to index 0-3 in stack? No, wait.
+            # Main sidebar indices: 0 (Main), 1 (OSWBB), 2 (ExaWatcher), 3 (Merge)
             self.stack.setCurrentIndex(index)
             # Update title
-            titles = ["APPENDIX GENERATOR", "OSWBB GRAPH GENERATOR", "MERGE DOCUMENTS"]
+            titles = ["APPENDIX GENERATOR", "OSWBB GRAPH GENERATOR", "EXAWATCHER GRAPH GENERATOR", "MERGE DOCUMENTS"]
             if index < len(titles):
                 self.section_title.setText(titles[index])
 
@@ -351,8 +358,8 @@ class MainWindow(QMainWindow):
             self.sidebar.setCurrentRow(-1)
             self.sidebar.blockSignals(False)
             
-            # "Collection Tools" is the only item in footer, corresponds to index 3 in stack
-            self.stack.setCurrentIndex(3)
+            # "Collection Tools" is index 4 in stack
+            self.stack.setCurrentIndex(4)
             self.section_title.setText("COLLECTION TOOLS")
             
             # Auto-sync logic
@@ -576,6 +583,91 @@ class MainWindow(QMainWindow):
         widget.setLayout(layout)
         return widget
     
+    def _create_exawatcher_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout()
+        layout.setSpacing(8)
+        layout.setContentsMargins(15, 10, 15, 10)
+        
+        # 1. SETUP GENERATOR
+        config_group = QGroupBox("1. SETUP EXAWATCHER SOURCES")
+        config_layout = QGridLayout()
+        config_layout.setContentsMargins(12, 12, 12, 10) 
+        config_layout.setSpacing(10)
+        
+        # CPU/Mem Source (DB/VM)
+        config_layout.addWidget(QLabel("DB/VM Log (CPU/Mem):"), 0, 0)
+        self.exa_db_input_dir = QLineEdit()
+        self.exa_db_input_dir.setPlaceholderText("Folder containing _mp.html and _meminfo.html...")
+        self.exa_db_input_dir.setAcceptDrops(True)
+        self.exa_db_input_dir.installEventFilter(self)
+        config_layout.addWidget(self.exa_db_input_dir, 0, 1)
+        btn_browse_db = QPushButton("Browse")
+        btn_browse_db.setObjectName("browse_btn")
+        btn_browse_db.clicked.connect(self._browse_exa_db)
+        config_layout.addWidget(btn_browse_db, 0, 2)
+        
+        # IO Source (Cell)
+        config_layout.addWidget(QLabel("Cell Log (IO):"), 1, 0)
+        self.exa_cell_input_dir = QLineEdit()
+        self.exa_cell_input_dir.setPlaceholderText("Folder containing _iosummary.html...")
+        self.exa_cell_input_dir.setAcceptDrops(True)
+        self.exa_cell_input_dir.installEventFilter(self)
+        config_layout.addWidget(self.exa_cell_input_dir, 1, 1)
+        btn_browse_cell = QPushButton("Browse")
+        btn_browse_cell.setObjectName("browse_btn")
+        btn_browse_cell.clicked.connect(self._browse_exa_cell)
+        config_layout.addWidget(btn_browse_cell, 1, 2)
+
+        # Output
+        config_layout.addWidget(QLabel("Output Images Folder:"), 2, 0)
+        self.exa_output_dir = QLineEdit()
+        self.exa_output_dir.setPlaceholderText("Select where to save generated graphs...")
+        self.exa_output_dir.setAcceptDrops(True)
+        self.exa_output_dir.installEventFilter(self)
+        config_layout.addWidget(self.exa_output_dir, 2, 1)
+        btn_browse_out = QPushButton("Browse")
+        btn_browse_out.setObjectName("browse_btn")
+        btn_browse_out.clicked.connect(self._browse_exa_out)
+        config_layout.addWidget(btn_browse_out, 2, 2)
+        
+        config_layout.setColumnStretch(1, 1)
+        config_group.setLayout(config_layout)
+        layout.addWidget(config_group)
+        
+        # 2. ACTIONS
+        action_layout = QHBoxLayout()
+        action_layout.setSpacing(15)
+        self.gen_exa_btn = QPushButton("🖻 GENERATE IMAGES")
+        self.gen_exa_btn.setObjectName("main_action_btn")
+        self.gen_exa_btn.clicked.connect(self._on_generate_exawatcher_clicked)
+        
+        self.stop_exa_btn = QPushButton("🛑 STOP")
+        self.stop_exa_btn.setObjectName("clear_btn")
+        self.stop_exa_btn.setEnabled(False)
+        self.stop_exa_btn.setFixedWidth(100)
+        self.stop_exa_btn.clicked.connect(self._on_stop_exawatcher_clicked)
+        
+        action_layout.addWidget(self.gen_exa_btn)
+        action_layout.addWidget(self.stop_exa_btn)
+        layout.addLayout(action_layout)
+        
+        # 3. CONSOLE LOG
+        log_group = QGroupBox("EXAWATCHER PROCESSING LOG")
+        log_layout = QVBoxLayout()
+        log_layout.setContentsMargins(12, 8, 12, 10)
+        self.exa_log_text = QTextEdit()
+        self.exa_log_text.setReadOnly(True)
+        self.exa_log_text.setMinimumHeight(150) 
+        log_layout.addWidget(self.exa_log_text)
+        log_group.setLayout(log_layout)
+        layout.addWidget(log_group, 1)
+
+        layout.addStretch() # Push everything up
+        
+        widget.setLayout(layout)
+        return widget
+    
 
     def _add_node_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Node Folder")
@@ -638,6 +730,9 @@ class MainWindow(QMainWindow):
             getattr(self, 'merge_file_list', None),
             getattr(self, 'oswbb_input_dir', None),
             getattr(self, 'oswbb_output_dir', None),
+            getattr(self, 'exa_db_input_dir', None),
+            getattr(self, 'exa_cell_input_dir', None),
+            getattr(self, 'exa_output_dir', None),
             getattr(self, 'merge_output_path', None)
         ]
         
@@ -1258,3 +1353,58 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Merge Complete", message)
         else:
             QMessageBox.critical(self, "Merge Failed", message)
+    def _browse_exa_db(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select DB Log Folder")
+        if folder: self.exa_db_input_dir.setText(folder)
+
+    def _browse_exa_cell(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Cell Log Folder")
+        if folder: self.exa_cell_input_dir.setText(folder)
+
+    def _browse_exa_out(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")
+        if folder: self.exa_output_dir.setText(folder)
+
+    def _on_generate_exawatcher_clicked(self):
+        db_in = self.exa_db_input_dir.text()
+        cell_in = self.exa_cell_input_dir.text()
+        out_dir = self.exa_output_dir.text()
+        
+        if not db_in or not cell_in or not out_dir:
+            QMessageBox.warning(self, "Missing fields", "Please select all required directories.")
+            return
+
+        self.gen_exa_btn.setEnabled(False)
+        self.stop_exa_btn.setEnabled(True)
+        self.exa_log_text.clear()
+        self.exa_log_text.append("[SYSTEM] Khởi chạy bộ xử lý ExaWatcher...")
+
+        self.exa_thread = QThread()
+        self.exa_worker = ExaWatcherGraphGenerator(db_in, cell_in, out_dir)
+        self.exa_worker.moveToThread(self.exa_thread)
+
+        self.exa_thread.started.connect(self.exa_worker.run)
+        self.exa_worker.progress.connect(self._on_exawatcher_log)
+        self.exa_worker.finished.connect(self._on_exawatcher_finished)
+        self.exa_worker.finished.connect(self.exa_thread.quit)
+        
+        self.exa_worker.finished.connect(self.exa_worker.deleteLater)
+        self.exa_thread.finished.connect(self.exa_thread.quit)
+
+        self.exa_thread.start()
+
+    def _on_exawatcher_log(self, text: str):
+        self.exa_log_text.append(text)
+
+    def _on_exawatcher_finished(self, success: bool):
+        self.gen_exa_btn.setEnabled(True)
+        self.stop_exa_btn.setEnabled(False)
+        if success:
+            QMessageBox.information(self, "Thành công", "Tiến trình ExaWatcher hoàn tất!")
+        else:
+            QMessageBox.warning(self, "Lỗi", "Tiến trình ExaWatcher gặp lỗi hoặc đã bị dừng.")
+
+    def _on_stop_exawatcher_clicked(self):
+        if hasattr(self, 'exa_worker') and self.exa_worker:
+            self.exa_worker.stop()
+            self.stop_exa_btn.setEnabled(False)

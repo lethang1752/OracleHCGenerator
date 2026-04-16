@@ -4,5 +4,6 @@ lxml>=4.9.0
 python-docx>=0.8.11
 reportlab>=4.0.0
 Pillow>=11.0.0
+matplotlib>=3.7.0
 pywin32>=311
 pyinstaller>=6.11.1
