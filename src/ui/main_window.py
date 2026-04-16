@@ -464,7 +464,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(15, 10, 15, 10)
         
         # 1. SETUP GENERATOR
-        config_group = QGroupBox("1. SETUP GENERATOR")
+        config_group = QGroupBox("1. SETUP OSWBB SOURCES")
         config_layout = QGridLayout()
         config_layout.setContentsMargins(12, 12, 12, 10) 
         config_layout.setSpacing(10)
