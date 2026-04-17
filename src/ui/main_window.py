@@ -419,17 +419,25 @@ class MainWindow(QMainWindow):
         self.font_combo.addItems(["Times New Roman", "Calibri"])
         self.font_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         settings_layout.addWidget(self.font_combo, 1, 1)
+
+        # Column 2: Database Role (New)
+        settings_layout.addWidget(QLabel("Database Role:"), 0, 2)
+        self.role_combo = QComboBox()
+        self.role_combo.addItems(["Primary", "Standby"])
+        self.role_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        settings_layout.addWidget(self.role_combo, 1, 2)
         
-        # Column 2-3: Custom Filename (Giving more width)
-        settings_layout.addWidget(QLabel("Custom Filename (Optional):"), 0, 2)
+        # Column 3: Custom Filename (Giving more width)
+        settings_layout.addWidget(QLabel("Custom Filename (Optional):"), 0, 3)
         self.filename_input = QLineEdit()
-        self.filename_input.setPlaceholderText("Auto-generated if empty")
-        settings_layout.addWidget(self.filename_input, 1, 2)
+        self.filename_input.setPlaceholderText("Auto-generated if empty (in folder output)")
+        settings_layout.addWidget(self.filename_input, 1, 3)
         
-        # Adjusting column stretches to make Column 0 and 1 narrower
+        # Adjusting column stretches to make Column 0, 1, 2 narrower
         settings_layout.setColumnStretch(0, 1)
         settings_layout.setColumnStretch(1, 1)
-        settings_layout.setColumnStretch(2, 2) # Filename takes 50% width relatively
+        settings_layout.setColumnStretch(2, 1)
+        settings_layout.setColumnStretch(3, 2) # Filename takes more width relatively
         
         settings_group.setLayout(settings_layout)
         layout.addWidget(settings_group)
@@ -975,6 +983,7 @@ class MainWindow(QMainWindow):
         self._log("Initializing dynamic multi-node report generation...")
         try:
             font_choice = self.font_combo.currentText()
+            db_role = self.role_combo.currentText().lower()
             
             # Calculate Base DB Name
             nodes = self.parsed_data.get('nodes', [])
@@ -988,6 +997,8 @@ class MainWindow(QMainWindow):
                     while base_db_name and base_db_name[-1].isdigit():
                         base_db_name = base_db_name[:-1]
             base_db_name = base_db_name.upper()
+            if db_role == 'standby':
+                base_db_name = f"{base_db_name}-STB"
             
             default_filename = f"{base_db_name}_appendix"
             filename = self.filename_input.text() or default_filename
@@ -998,7 +1009,7 @@ class MainWindow(QMainWindow):
             
             # Create and start Generator Worker in background
             self.gen_thread = QThread()
-            self.gen_worker = GeneratorWorker(self.parsed_data, docx_path, font_token, filename)
+            self.gen_worker = GeneratorWorker(self.parsed_data, docx_path, font_token, filename, db_role)
             self.gen_worker.moveToThread(self.gen_thread)
             
             self.gen_thread.started.connect(self.gen_worker.run)
@@ -1127,7 +1138,7 @@ class MainWindow(QMainWindow):
 
         output_grid.addWidget(QLabel("Save Merged File As:"), 0, 0)
         self.merge_output_path = QLineEdit()
-        self.merge_output_path.setPlaceholderText("Select destination file path (.docx)...")
+        self.merge_output_path.setPlaceholderText("Empty = Default 'output/merged_appendix.docx' in application folder")
         self.merge_output_path.setAcceptDrops(True)
         self.merge_output_path.installEventFilter(self)
         output_grid.addWidget(self.merge_output_path, 0, 1)
@@ -1391,9 +1402,10 @@ class MainWindow(QMainWindow):
 
         output = self.merge_output_path.text().strip()
         if not output:
-            QMessageBox.warning(self, "Missing Output",
-                                "Please specify a destination file path.")
-            return
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            output = str(OUTPUT_DIR / "merged_appendix.docx")
+            self.merge_output_path.setText(output)
+            self._log(f"[INFO] Automatically selected merge output: {output}")
 
         ordered_paths = [
             self.merge_file_list.item(i).data(Qt.UserRole)

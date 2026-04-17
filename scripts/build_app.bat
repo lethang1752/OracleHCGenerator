@@ -12,13 +12,12 @@ if not exist "dist\jre_mini\bin\java.exe" (
     call scripts\create_jre_mini.bat
 )
 
-echo [INFO] Dang bat dau qua trinh dong goi voi PyInstaller...
-venv\Scripts\pyinstaller --clean build.spec
+echo [INFO] Dang bat dau qua trinh tang version va dong goi...
+venv\Scripts\python scripts\packager.py
 
 if %ERRORLEVEL% EQU 0 (
-    echo [SUCCESS] Dong goi thanh cong! 
-    echo [INFO] File thuc thi nam tai: dist\OracleHCGenerator_v2.1.1.exe
+    echo [SUCCESS] Dong goi hoan tat! Vui long kiem tra thu muc dist.
 ) else (
-    echo [ERROR] Qua trinh dong goi gap loi.
+    echo [ERROR] Co loi xay ra trong qua trinh dong goi.
 )
 pause

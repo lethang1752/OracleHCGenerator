@@ -187,9 +187,9 @@ class ExaWatcherGraphGenerator(QObject):
         ax.set_title(title, fontsize=12, fontweight='bold', pad=15)
         ax.grid(True, linestyle='--', alpha=0.3, linewidth=0.5)
         
-        # Design: Very light yellow outer background, White plotting area
+        # Design: Light sky blue outer background (#C6D9F1), White plotting area
         ax.set_facecolor('white')
-        fig.patch.set_facecolor('#FFFEF0') 
+        fig.patch.set_facecolor('#C6D9F1') 
         
         # 3-hour interval timeline with 24h hour-only labels
         ax.xaxis.set_major_locator(mdates.HourLocator(byhour=[0, 3, 6, 9, 12, 15, 18, 21]))

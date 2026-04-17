@@ -28,9 +28,10 @@ class ComprehensiveHealthcareReportGenerator:
     TIME_RE = re.compile(r'^[\d.]+\s*(us|ms|s)$', re.I)
     DATE_RE = re.compile(r'^[\d]{2,4}[-/][a-zA-Z\d]{2,3}[-/][\d]{2,4}')
     
-    def __init__(self, output_path: str, font_option: str = 'times'):
+    def __init__(self, output_path: str, font_option: str = 'times', db_role: str = 'primary'):
         self.output_path = output_path
         self.font_option = font_option.lower()
+        self.db_role = db_role.lower()
         
         # Select template based on font option
         template_name = 'timenr_template.docx' if self.font_option == 'times' else 'calibri_template.docx'
@@ -121,6 +122,8 @@ class ComprehensiveHealthcareReportGenerator:
         db_name = inst
         while db_name and db_name[-1].isdigit():
             db_name = db_name[:-1]
+        if self.db_role == 'standby':
+            return f"{db_name.upper()}-STB"
         return db_name.upper()
 
     def _add_instance_name(self, text):
@@ -153,10 +156,14 @@ class ComprehensiveHealthcareReportGenerator:
                     
     def _add_node_images(self, node_dir: str, image_candidates: list):
         """
-        Add images from node's generated_files folder - Fixed at 16.4 cm.
+        Add images from node's generated_files or exawatcher_files folder - Fixed at 16.4 cm.
         Supports fallback names: item can be a string or a list of candidate strings.
         """
+        # Search for OSWBB folder first, fallback to ExaWatcher folder
         img_folder = Path(node_dir) / 'generated_files'
+        if not img_folder.exists():
+            img_folder = Path(node_dir) / 'exawatcher_files'
+            
         if not img_folder.exists():
             return
             
@@ -180,7 +187,9 @@ class ComprehensiveHealthcareReportGenerator:
                 except Exception as e:
                     logger.warning(f"Error adding image from {found_path}: {e}")
             else:
-                logger.warning(f"None of the candidates {candidates} were found in {img_folder}")
+                # Only log warning if we are not suppressing missing images
+                if not getattr(self, '_hide_missing_images', False):
+                    logger.warning(f"None of the candidates {candidates} were found in {img_folder}")
     
     def generate_from_parsed_data(self, data: Dict[str, Any]) -> bool:
         """Generate comprehensive report"""
@@ -197,8 +206,9 @@ class ComprehensiveHealthcareReportGenerator:
             # 1.3 Performance Check
             self._add_section_1_3_performance_check(data)
             
-            # 1.4 Data Quality
-            self._add_section_1_4_data_quality(data)
+            # 1.4 Data Quality (Skip if Standby)
+            if self.db_role == 'primary':
+                self._add_section_1_4_data_quality(data)
             
             # 1.5 HA/Clusterware Status
             self._add_section_1_5_ha_status(data)
@@ -212,8 +222,9 @@ class ComprehensiveHealthcareReportGenerator:
             # 1.8 Dataguard Status
             self._add_section_1_8_dataguard_status(data)
             
-            # 1.9 Security
-            self._add_section_1_9_security(data)
+            # 1.9 Security (Skip if Standby)
+            if self.db_role == 'primary':
+                self._add_section_1_9_security(data)
             
             # 1.10 Patch Update
             self._add_section_1_10_patch_update(data)
@@ -300,9 +311,9 @@ class ComprehensiveHealthcareReportGenerator:
             inst = node.get('instance_name', f"NODE{node.get('node_id')}")
             self._add_instance_name(inst)
             cpu_candidates = [
-                ['OSWg_OS_Cpu_Idle.jpg', 'OSWg_Cpu_Idle.jpg'],
-                ['OSWg_OS_Cpu_System.jpg', 'OSWg_Cpu_System.jpg'],
-                ['OSWg_OS_Cpu_User.jpg', 'OSWg_Cpu_User.jpg']
+                ['OSWg_OS_Cpu_Idle.jpg', 'OSWg_Cpu_Idle.jpg', 'Exa_Cpu_Idle.png'],
+                ['OSWg_OS_Cpu_System.jpg', 'OSWg_Cpu_System.jpg', 'Exa_Cpu_Sys.png'],
+                ['OSWg_OS_Cpu_User.jpg', 'OSWg_Cpu_User.jpg', 'Exa_Cpu_Usr.png']
             ]
             self._add_node_images(node.get('data_dir', ''), cpu_candidates)
         
@@ -312,8 +323,8 @@ class ComprehensiveHealthcareReportGenerator:
             inst = node.get('instance_name', f"NODE{node.get('node_id')}")
             self._add_instance_name(inst)
             mem_candidates = [
-                ['OSWg_OS_Memory_Free.jpg', 'OSWg_MemInfoFreeMem.jpg'],
-                ['OSWg_OS_Memory_Swap.jpg', 'OSWg_Memory_Swap.jpg']
+                ['OSWg_OS_Memory_Free.jpg', 'OSWg_MemInfoFreeMem.jpg', 'Exa_Mem_OS.png'],
+                ['OSWg_OS_Memory_Swap.jpg', 'OSWg_Memory_Swap.jpg', 'Exa_Mem_HugePages.png']
             ]
             self._add_node_images(node.get('data_dir', ''), mem_candidates)
             self.doc.add_paragraph("- Buffer & Library Hit Ratio")
@@ -325,47 +336,50 @@ class ComprehensiveHealthcareReportGenerator:
             inst = node.get('instance_name', f"NODE{node.get('node_id')}")
             self._add_instance_name(inst)
             io_candidates = [
-                ['OSWg_OS_IO_PB.jpg', 'OSWg_IO_PB.jpg']
+                ['OSWg_OS_IO_PB.jpg', 'OSWg_IO_PB.jpg', 'Exa_IO_Summary.png']
             ]
             self._add_node_images(node.get('data_dir', ''), io_candidates)
-            self.doc.add_paragraph("- Wait Classes by Total Wait Time")
-            self._add_awr_table(node.get('awr', {}), 'wait class', align_left_cols=[0])
-        
-        # 1.3.4 Top Queries
-        self.doc.add_heading("Top queries", level=3)
-        # 1.3.4: Fixed CM widths per user request
-        top_sql_widths = [Cm(1.9), Cm(1.5), Cm(2.25), Cm(1.25), Cm(1.25), Cm(1.25), Cm(3.0), Cm(4.0)]
-        for node in nodes:
-            inst = node.get('instance_name', f"NODE{node.get('node_id')}")
-            self._add_instance_name(inst)
-            self._add_awr_table(node.get('awr', {}), 'top SQL elapsed', drop_cols=['SQL Module'], col_widths=top_sql_widths)
-        
-        # 1.3.5 SQL Text
-        self.doc.add_heading("Lists SQL Text", level=3)
-        for node in nodes:
-            inst = node.get('instance_name', f"NODE{node.get('node_id')}")
-            self._add_instance_name(inst)
-            self._add_filtered_sql_text_table(node.get('awr', {}))
-        
-        # 1.3.6 Wait Events
-        self.doc.add_heading("Top wait events", level=3)
-        # 1.3.6: Fixed CM widths per user request
-        wait_event_widths = [Cm(5.2), Cm(2.0), Cm(2.5), Cm(2.0), Cm(1.7), Cm(3.0)]
-        from docx.enum.text import WD_ALIGN_PARAGRAPH
-        from docx.enum.table import WD_ALIGN_VERTICAL
-        for node in nodes:
-            inst = node.get('instance_name', f"NODE{node.get('node_id')}")
-            self._add_instance_name(inst)
-            table = self._add_awr_table(node.get('awr', {}), 'Top 10 Foreground Events by Total Wait Time', col_widths=wait_event_widths)
             
-            # Formating column 6 logic (Align Center Left)
-            if table and len(table.columns) >= 6:
-                for row in table.rows[1:]:
-                    if len(row.cells) >= 6:
-                        cell = row.cells[5]
-                        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-                        for p in cell.paragraphs:
-                            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            if self.db_role == 'primary':
+                self.doc.add_paragraph("- Wait Classes by Total Wait Time")
+                self._add_awr_table(node.get('awr', {}), 'wait class', align_left_cols=[0])
+        
+        if self.db_role == 'primary':
+            # 1.3.4 Top Queries
+            self.doc.add_heading("Top queries", level=3)
+            # 1.3.4: Fixed CM widths per user request
+            top_sql_widths = [Cm(1.9), Cm(1.5), Cm(2.25), Cm(1.25), Cm(1.25), Cm(1.25), Cm(3.0), Cm(4.0)]
+            for node in nodes:
+                inst = node.get('instance_name', f"NODE{node.get('node_id')}")
+                self._add_instance_name(inst)
+                self._add_awr_table(node.get('awr', {}), 'top SQL elapsed', drop_cols=['SQL Module'], col_widths=top_sql_widths)
+            
+            # 1.3.5 SQL Text
+            self.doc.add_heading("Lists SQL Text", level=3)
+            for node in nodes:
+                inst = node.get('instance_name', f"NODE{node.get('node_id')}")
+                self._add_instance_name(inst)
+                self._add_filtered_sql_text_table(node.get('awr', {}))
+            
+            # 1.3.6 Wait Events
+            self.doc.add_heading("Top wait events", level=3)
+            # 1.3.6: Fixed CM widths per user request
+            wait_event_widths = [Cm(5.2), Cm(2.0), Cm(2.5), Cm(2.0), Cm(1.7), Cm(3.0)]
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+            from docx.enum.table import WD_ALIGN_VERTICAL
+            for node in nodes:
+                inst = node.get('instance_name', f"NODE{node.get('node_id')}")
+                self._add_instance_name(inst)
+                table = self._add_awr_table(node.get('awr', {}), 'Top 10 Foreground Events by Total Wait Time', col_widths=wait_event_widths)
+                
+                # Formating column 6 logic (Align Center Left)
+                if table and len(table.columns) >= 6:
+                    for row in table.rows[1:]:
+                        if len(row.cells) >= 6:
+                            cell = row.cells[5]
+                            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                            for p in cell.paragraphs:
+                                p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         
         db_info_first = nodes[0].get('database_info', {}) if nodes else {}
         
@@ -378,20 +392,21 @@ class ComprehensiveHealthcareReportGenerator:
         tablespace_widths = [Cm(4.15), Cm(1.75), Cm(2.25), Cm(2.25), Cm(2.25), Cm(2.25), Cm(1.5)]
         self._add_db_info_table(db_info_first, 'TABLESPACE', col_widths=tablespace_widths)
         
-        self.doc.add_heading("Index Fragment", level=3)
-        self.doc.add_paragraph("- List of normal index fragment")
-        frag_widths_norm = [Cm(2.4), Cm(8.0), Cm(2.0), Cm(2.0), Cm(2.0)]
-        self._add_db_info_table(db_info_first, 'INDEX_FRAGMENT', filter_nulls=True, col_widths=frag_widths_norm)
-        self.doc.add_paragraph("- List of partition index fragment")
-        frag_widths_part = [Cm(2.4), Cm(4.0), Cm(4.0), Cm(2.0), Cm(2.0), Cm(2.0)]
-        self._add_db_info_table(db_info_first, 'INDEX_PARTITION_FRAGMENT', filter_nulls=True, col_widths=frag_widths_part)
-        
-        # 1.3.10 Table Fragment
-        self.doc.add_heading("Table Fragment", level=3)
-        self.doc.add_paragraph("- List of normal table fragment")
-        self._add_db_info_table(db_info_first, 'TABLE_FRAGMENT', filter_nulls=True, col_widths=frag_widths_norm)
-        self.doc.add_paragraph("- List of partition table fragment")
-        self._add_db_info_table(db_info_first, 'TABLE_PARTITION_FRAGMENT', filter_nulls=True, col_widths=frag_widths_part)
+        if self.db_role == 'primary':
+            self.doc.add_heading("Index Fragment", level=3)
+            self.doc.add_paragraph("- List of normal index fragment")
+            frag_widths_norm = [Cm(2.4), Cm(8.0), Cm(2.0), Cm(2.0), Cm(2.0)]
+            self._add_db_info_table(db_info_first, 'INDEX_FRAGMENT', filter_nulls=True, col_widths=frag_widths_norm)
+            self.doc.add_paragraph("- List of partition index fragment")
+            frag_widths_part = [Cm(2.4), Cm(4.0), Cm(4.0), Cm(2.0), Cm(2.0), Cm(2.0)]
+            self._add_db_info_table(db_info_first, 'INDEX_PARTITION_FRAGMENT', filter_nulls=True, col_widths=frag_widths_part)
+            
+            # 1.3.10 Table Fragment
+            self.doc.add_heading("Table Fragment", level=3)
+            self.doc.add_paragraph("- List of normal table fragment")
+            self._add_db_info_table(db_info_first, 'TABLE_FRAGMENT', filter_nulls=True, col_widths=frag_widths_norm)
+            self.doc.add_paragraph("- List of partition table fragment")
+            self._add_db_info_table(db_info_first, 'TABLE_PARTITION_FRAGMENT', filter_nulls=True, col_widths=frag_widths_part)
     
     def _add_section_1_4_data_quality(self, data: Dict[str, Any]):
         """1.4 Data Quality"""

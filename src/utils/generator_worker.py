@@ -28,12 +28,13 @@ class GeneratorWorker(QThread):
     progress = pyqtSignal(str, int)
     finished = pyqtSignal(bool, str, str)
 
-    def __init__(self, parsed_data: Dict[str, Any], output_path: str, font_option: str, filename: str):
+    def __init__(self, parsed_data: Dict[str, Any], output_path: str, font_option: str, filename: str, db_role: str = 'primary'):
         super().__init__()
         self.parsed_data = parsed_data
         self.output_path = output_path
         self.font_option = font_option
         self.filename = filename
+        self.db_role = db_role
 
     def run(self):
         try:
@@ -41,7 +42,8 @@ class GeneratorWorker(QThread):
             
             gen = ComprehensiveHealthcareReportGenerator(
                 self.output_path, 
-                font_option=self.font_option
+                font_option=self.font_option,
+                db_role=self.db_role
             )
             
             # We don't have a direct callback into generate_from_parsed_data currently
