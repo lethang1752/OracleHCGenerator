@@ -1,6 +1,6 @@
-# Oracle HC Generator (v2.5.0)
+# Oracle HC Generator (v2.5.1)
 
-[![Release](https://img.shields.io/badge/Release-v2.5.0-blue.svg)](https://github.com/lethang1752/OracleHCGenerator/releases)
+[![Release](https://img.shields.io/badge/Release-v2.5.1-blue.svg)](https://github.com/lethang1752/OracleHCGenerator/releases)
 [![Python](https://img.shields.io/badge/Python-3.8+-green.svg)](https://www.python.org/)
 
 **Oracle HC Generator** là giải pháp Desktop mạnh mẽ giúp tự động hóa quá trình thu thập, phân tích và tạo báo cáo kiểm tra sức khỏe (Health Check) cho hệ thống Oracle Database RAC. Ứng dụng được thiết kế theo phong cách hiện đại, trực quan và không cần cài đặt (Portable).

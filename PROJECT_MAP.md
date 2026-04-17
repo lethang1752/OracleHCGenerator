@@ -40,7 +40,7 @@ NewApplication/
 
 ## Thống kê Tham Số Hệ Thống
 - **Tên App:** Oracle HC Generator
-- **Phiên bản:** v2.5.0
+- **Phiên bản:** v2.5.1
 - **Ngôn ngữ:** Python 3.8+ (PyQt5)
 - **Thiết kế UI:** Fluent Design (Accent: #0067C0, Height: 28px)
 - **Đóng gói:** PyInstaller One-file (JRE mini đi kèm trong dist/)

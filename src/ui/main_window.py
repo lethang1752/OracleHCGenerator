@@ -1447,12 +1447,22 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.critical(self, "Merge Failed", message)
     def _browse_exa_db(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select DB Log Folder")
-        if folder: self.exa_db_input_dir.setText(folder)
+        # Allow selecting .tar.bz2 files or folders via a more flexible dialog
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select DB Log Source", "", "Archives (*.tar.bz2);;All Files (*)")
+        if file_path:
+            self.exa_db_input_dir.setText(file_path)
+        else:
+            # Fallback to directory selection if they didn't pick a file
+            folder = QFileDialog.getExistingDirectory(self, "Select DB Log Folder")
+            if folder: self.exa_db_input_dir.setText(folder)
 
     def _browse_exa_cell(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Cell Log Folder")
-        if folder: self.exa_cell_input_dir.setText(folder)
+        path, _ = QFileDialog.getOpenFileName(self, "Select Cell Log Source", "", "Archives (*.tar.bz2);;All Files (*)")
+        if path:
+            self.exa_cell_input_dir.setText(path)
+        else:
+            folder = QFileDialog.getExistingDirectory(self, "Select Cell Log Folder")
+            if folder: self.exa_cell_input_dir.setText(folder)
 
     def _browse_exa_out(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")

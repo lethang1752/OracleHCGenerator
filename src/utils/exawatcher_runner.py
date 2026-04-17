@@ -1,8 +1,12 @@
 import re
 import json
 import logging
+import tarfile
+import io
+import os
+import traceback
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Union
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -14,6 +18,88 @@ from .logger import setup_logger
 
 logger = setup_logger(__name__)
 
+class LogSource:
+    """Abstract base class for log data sources"""
+    def __init__(self, progress_callback=None):
+        self.progress_callback = progress_callback
+
+    def log(self, msg: str):
+        if self.progress_callback:
+            self.progress_callback(msg)
+        else:
+            logger.info(msg)
+
+    def get_content(self, suffix: str) -> Optional[str]:
+        raise NotImplementedError
+
+    def exists(self) -> bool:
+        raise NotImplementedError
+
+class DirectoryLogSource(LogSource):
+    """Source for logs in a local directory"""
+    def __init__(self, path: Union[str, Path], progress_callback=None):
+        super().__init__(progress_callback)
+        self.path = Path(path)
+
+    def exists(self) -> bool:
+        return self.path.exists() and self.path.is_dir()
+
+    def get_content(self, suffix: str) -> Optional[str]:
+        for p in self.path.rglob(f"*{suffix}"):
+            if p.is_file():
+                try:
+                    return p.read_text(encoding='utf-8', errors='ignore')
+                except Exception as e:
+                    logger.warning(f"Failed to read {p}: {e}")
+        return None
+
+class TarLogSource(LogSource):
+    """Source for logs inside a .tar.bz2 archive (streaming in RAM)"""
+    def __init__(self, path: Union[str, Path], progress_callback=None):
+        super().__init__(progress_callback)
+        self.path = Path(path)
+        self._content_cache = {}
+        self._scanned = False
+
+    def exists(self) -> bool:
+        return self.path.exists() and self.path.is_file()
+
+    def _scan_if_needed(self, suffixes: List[str]):
+        if self._scanned:
+            return
+        
+        found_suffixes = set()
+        try:
+            self.log(f"[INFO] Đang quét hệ thống tệp trong archive: {self.path.name}")
+            with tarfile.open(self.path, "r:bz2") as tar:
+                # Use iterator instead of getmembers() to avoid indexing whole archive
+                file_count = 0
+                for member in tar:
+                    file_count += 1
+                    if member.isfile():
+                        for suffix in suffixes:
+                            if suffix not in found_suffixes and member.name.endswith(suffix):
+                                f = tar.extractfile(member)
+                                if f:
+                                    self._content_cache[suffix] = f.read().decode('utf-8', errors='ignore')
+                                    found_suffixes.add(suffix)
+                                    self.log(f"[OK] Đã tìm thấy {member.name}")
+                                    
+                    # Stop early if we have everything we need
+                    if len(found_suffixes) >= len(suffixes):
+                        self.log(f"[INFO] Kết thúc sớm: Đã tìm đủ các tệp cần thiết sau khi quét {file_count} mục.")
+                        break
+                else:
+                    self.log(f"[INFO] Quét xong: Đã duyệt {file_count} mục. Tìm thấy {len(found_suffixes)}/{len(suffixes)} tệp yêu cầu.")
+            self._scanned = True
+        except Exception as e:
+            logger.error(f"Failed to stream archive {self.path}: {e}")
+
+    def get_content(self, suffix: str) -> Optional[str]:
+        # We pre-scan for common ExaWatcher suffixes to avoid multiple passes
+        self._scan_if_needed(["_mp.html", "_meminfo.html", "_iosummary.html"])
+        return self._content_cache.get(suffix)
+
 class ExaWatcherGraphGenerator(QObject):
     """
     Consolidates ExaWatcher HTML data and generates high-quality static images.
@@ -22,42 +108,76 @@ class ExaWatcherGraphGenerator(QObject):
     progress = pyqtSignal(str)
     finished = pyqtSignal(bool)
 
-    def __init__(self, db_node_folder: str, cell_node_folder: str, output_folder: str, 
+    def __init__(self, db_node_source: str, cell_node_source: str, output_folder: str, 
                  push_targets: list = None, push_mode: str = "overwrite"):
         super().__init__()
-        self.db_node_folder = Path(db_node_folder)
-        self.cell_node_folder = Path(cell_node_folder)
-        self.output_folder = Path(output_folder)
+        self.db_source_path = Path(db_node_source)
+        self.cell_source_path = Path(cell_node_source)
+        # Ensure output folder is absolute, especially important for frozen EXE
+        self.output_folder = Path(output_folder).resolve()
         self.push_targets = push_targets or []
         self.push_mode = push_mode # "overwrite" | "timestamp"
         self._stop_requested = False
+
+        # Factory for log sources
+        self.db_log_source = self._create_source(self.db_source_path)
+        self.cell_log_source = self._create_source(self.cell_source_path)
+
+    def _create_source(self, path: Path) -> LogSource:
+        if path.is_file() and (path.suffix == '.bz2' or '.tar' in path.name):
+            return TarLogSource(path, progress_callback=self.progress.emit)
+        return DirectoryLogSource(path, progress_callback=self.progress.emit)
 
     def stop(self):
         self._stop_requested = True
 
     def run(self):
+        import concurrent.futures
         try:
             self.output_folder.mkdir(parents=True, exist_ok=True)
-            self.progress.emit(f"[INFO] Bắt đầu xử lý ExaWatcher từ 2 nguồn...")
+            self.progress.emit(f"[INFO] Bắt đầu xử lý ExaWatcher (Parallel Mode)...")
+            self.progress.emit(f"[PATH] Output folder: {self.output_folder}")
 
-            # 1. Process CPU & Memory (Source A: DB/VM)
-            if self.db_node_folder and self.db_node_folder.exists() and self.db_node_folder.is_dir():
-                self._process_cpu_mem()
-            else:
-                self.progress.emit(f"[WARN] Thư mục DB/VM không hợp lệ hoặc không tồn tại.")
+            image_count = 0
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                future_to_source = {}
+                
+                # 1. Process CPU & Memory (Source A: DB/VM)
+                if self.db_log_source.exists():
+                    future_to_source[executor.submit(self._process_cpu_mem)] = "DB/VM Source"
+                else:
+                    self.progress.emit(f"[WARN] Nguồn dữ liệu DB/VM không hợp lệ: {self.db_source_path.name}")
 
-            # 2. Process IO (Source B: Cell)
-            if self.cell_node_folder and self.cell_node_folder.exists() and self.cell_node_folder.is_dir():
-                self._process_io()
-            else:
-                self.progress.emit(f"[WARN] Thư mục Cell không hợp lệ hoặc không tồn tại.")
+                # 2. Process IO (Source B: Cell)
+                if self.cell_log_source.exists():
+                    future_to_source[executor.submit(self._process_io)] = "Cell Source"
+                else:
+                    self.progress.emit(f"[WARN] Nguồn dữ liệu Cell không hợp lệ: {self.cell_source_path.name}")
+
+                # Collect results and catch exceptions from threads
+                for future in concurrent.futures.as_completed(future_to_source):
+                    source_name = future_to_source[future]
+                    try:
+                        count = future.result()
+                        image_count += count
+                        self.progress.emit(f"[SUCCESS] {source_name} xử lý xong (Tạo được {count} ảnh).")
+                    except Exception as e:
+                        err_detail = traceback.format_exc()
+                        logger.error(f"Error in {source_name}: {e}\n{err_detail}")
+                        self.progress.emit(f"[ERROR] Thất bại tại {source_name}: {str(e)}")
 
             if self._stop_requested:
                 self.progress.emit("[INFO] Đã dừng theo yêu cầu người dùng.")
                 self.finished.emit(False)
                 return
 
-            self.progress.emit(f"[SUCCESS] Hoàn tất tạo biểu đồ ExaWatcher tại: {self.output_folder}")
+            if image_count == 0:
+                self.progress.emit(f"[ERROR] Không tạo được ảnh nào. Vui lòng kiểm tra lại định dạng tệp log.")
+                self.finished.emit(False)
+                return
+
+            self.progress.emit(f"[SUCCESS] Hoàn tất tạo {image_count} biểu đồ ExaWatcher.")
             
             # 3. PUSH RESULTS (Synchronize files to target folders)
             if self.push_targets:
@@ -152,10 +272,10 @@ class ExaWatcherGraphGenerator(QObject):
     def _extract_js_var(self, html_content: str, var_names: List[str]) -> Dict:
         """Extract JavaScript variable values using regex (supports 'var x=', 'self.x =')"""
         results = {}
+        # Pre-compile patterns for speed
         for var_name in var_names:
-            # Oracle JET data can be assigned to var or self.property
-            pattern = rf"(?:var\s+|self\.){var_name}\s*=\s*"
-            start_match = re.search(pattern, html_content)
+            pattern = re.compile(rf"(?:var\s+|self\.){var_name}\s*=\s*")
+            start_match = pattern.search(html_content)
             if start_match:
                 start_pos = start_match.end()
                 end_pos = html_content.find(';', start_pos)
@@ -163,22 +283,12 @@ class ExaWatcherGraphGenerator(QObject):
                     raw_val = html_content[start_pos:end_pos].strip()
                     try:
                         results[var_name] = json.loads(raw_val)
-                        logger.info(f"Extracted variable {var_name} ({len(raw_val)} chars)")
+                        logger.info(f"Extracted variable {var_name}")
                     except Exception as e:
                         logger.warning(f"Failed to parse variable {var_name}: {e}")
             else:
                 logger.debug(f"Variable {var_name} not found")
         return results
-
-    def _get_html_file(self, folder: Path, suffix: str) -> Optional[Path]:
-        """Find the html file with given suffix in the structure"""
-        if not folder or not folder.exists():
-            return None
-        
-        for p in folder.rglob(f"*{suffix}"):
-            if p.is_file():
-                return p
-        return None
 
     def _setup_plot(self, title: str):
         """Standard matplotlib setup for Oracle-style charts (1000x350px)"""
@@ -211,12 +321,12 @@ class ExaWatcherGraphGenerator(QObject):
         # process method to ensure it considers all labels/titles.
         return fig, ax
 
-    def _process_cpu_mem(self):
+    def _process_cpu_mem(self) -> int:
+        images_generated = 0
         # CPU
-        mp_html = self._get_html_file(self.db_node_folder, "_mp.html")
-        if mp_html:
-            self.progress.emit("[INFO] Đang vẽ biểu đồ CPU từ _mp.html...")
-            content = mp_html.read_text(encoding='utf-8', errors='ignore')
+        content = self.db_log_source.get_content("_mp.html")
+        if content:
+            self.progress.emit("[INFO] Đang vẽ biểu đồ CPU từ nguồn dữ liệu...")
             data_vars = self._extract_js_var(content, ["xAxis", "series"])
             
             if "xAxis" in data_vars and "series" in data_vars:
@@ -253,14 +363,14 @@ class ExaWatcherGraphGenerator(QObject):
                         fig.tight_layout()
                         fig.savefig(self.output_folder / out_name)
                         plt.close(fig)
+                        images_generated += 1
                     else:
                         logger.warning(f"Series {sid} not found or length mismatch in _mp.html")
 
         # Memory
-        mem_html = self._get_html_file(self.db_node_folder, "_meminfo.html")
-        if mem_html:
-            self.progress.emit("[INFO] Đang vẽ biểu đồ Memory từ _meminfo.html...")
-            content = mem_html.read_text(encoding='utf-8', errors='ignore')
+        content = self.db_log_source.get_content("_meminfo.html")
+        if content:
+            self.progress.emit("[INFO] Đang vẽ biểu đồ Memory từ nguồn dữ liệu...")
             # Look for all common memory variable names
             data_vars = self._extract_js_var(content, ["xAxis", "data", "refObjects"])
             
@@ -289,6 +399,7 @@ class ExaWatcherGraphGenerator(QObject):
                     fig.tight_layout()
                     fig.savefig(self.output_folder / "Exa_Mem_OS.png")
                     plt.close(fig)
+                    images_generated += 1
 
                 # Chart 2: HugePages (usually 'hp' or 'hugePagesChart')
                 hp_key = "hp" if "hp" in mem_data_root else "hugePagesChart"
@@ -305,12 +416,14 @@ class ExaWatcherGraphGenerator(QObject):
                     fig.tight_layout()
                     fig.savefig(self.output_folder / "Exa_Mem_HugePages.png")
                     plt.close(fig)
+                    images_generated += 1
+        return images_generated
 
-    def _process_io(self):
-        io_html = self._get_html_file(self.cell_node_folder, "_iosummary.html")
-        if io_html:
-            self.progress.emit("[INFO] Đang vẽ biểu đồ IO từ _iosummary.html...")
-            content = io_html.read_text(encoding='utf-8', errors='ignore')
+    def _process_io(self) -> int:
+        images_generated = 0
+        content = self.cell_log_source.get_content("_iosummary.html")
+        if content:
+            self.progress.emit("[INFO] Đang vẽ biểu đồ IO từ nguồn dữ liệu...")
             data_vars = self._extract_js_var(content, ["xAxis", "data"])
             
             if "xAxis" in data_vars and "data" in data_vars:
@@ -318,7 +431,6 @@ class ExaWatcherGraphGenerator(QObject):
                 io_data_root = data_vars["data"]
                 
                 # Use 'flash' if available and has data, otherwise 'disk'
-                # User asked for "Flash I/O", but we should be robust
                 dtype = "flash"
                 if not io_data_root.get(dtype) or not io_data_root[dtype].get("iops") or not io_data_root[dtype]["iops"][0].get("items"):
                     dtype = "disk"
@@ -359,5 +471,7 @@ class ExaWatcherGraphGenerator(QObject):
                         ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f"{int(x):,}/s"))
                         fig.tight_layout()
                         fig.savefig(self.output_folder / "Exa_IO_Summary.png")
+                        images_generated += 1
                     
                     plt.close(fig)
+        return images_generated

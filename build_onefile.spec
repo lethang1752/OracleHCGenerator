@@ -26,7 +26,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='OracleHCGenerator_v2.5.0',
+    name='OracleHCGenerator_v2.5.1',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
