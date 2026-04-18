@@ -166,6 +166,8 @@ QPushButton#browse_btn {
     border: 1px solid #D1D1D1;
     color: #1A1A1A;
     min-height: 28px;
+    min-width: 32px; /* Ensure icon has enough space */
+    font-size: 14px; /* Slightly larger for emoji */
 }
 
 QPushButton#browse_btn:hover {

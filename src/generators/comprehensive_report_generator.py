@@ -591,14 +591,23 @@ class ComprehensiveHealthcareReportGenerator:
         
         # 1.7.2 Scheduling
         self.doc.add_heading("Scheduling", level=3)
+        
+        # Get dynamic schedule from parser
+        sched = db_info_first.get('backup_schedule', {'level_0': 'NOT FOUND', 'level_1': 'NOT FOUND', 'archive': 'NOT FOUND'})
+        
         p = self.doc.add_paragraph("• Backup level 0:")
         p.paragraph_format.left_indent = Inches(0.25)
-        p = self.doc.add_paragraph("Monday to Sunday (about time: 19:50 ~ 20:55)")
+        p = self.doc.add_paragraph(sched.get('level_0', 'NOT FOUND'))
+        p.paragraph_format.left_indent = Inches(0.5)
+        
+        p = self.doc.add_paragraph("• Backup level 1:")
+        p.paragraph_format.left_indent = Inches(0.25)
+        p = self.doc.add_paragraph(sched.get('level_1', 'NOT FOUND'))
         p.paragraph_format.left_indent = Inches(0.5)
         
         p = self.doc.add_paragraph("• Backup archive:")
         p.paragraph_format.left_indent = Inches(0.25)
-        p = self.doc.add_paragraph("Monday to Sunday (about time: 06:00; 14:00)")
+        p = self.doc.add_paragraph(sched.get('archive', 'NOT FOUND'))
         p.paragraph_format.left_indent = Inches(0.5)
         
         # 1.7.3 Policy

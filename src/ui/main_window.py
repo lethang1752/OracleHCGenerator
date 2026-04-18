@@ -53,12 +53,15 @@ def standalone_parse_node(node_id: int, data_dir: str, num_days: int):
         parser_db_info = DatabaseInfoParser(data_dir)
         parser_db_info.parse()
         
+        db_info_data = parser_db_info.get_all_data()
+        db_info_data['backup_schedule'] = parser_db_info.get_backup_schedule()
+        
         return {
             "node_id": node_id,
             "data_dir": data_dir,
             "alert_data": parser_alert.get_data(),
             "awr_data": parser_awr.get_data(),
-            "db_info_data": parser_db_info.get_all_data()
+            "db_info_data": db_info_data
         }
     except Exception as e:
         return {"error": str(e)}
@@ -414,9 +417,11 @@ class MainWindow(QMainWindow):
         # Column 0: Alert Logs
         settings_layout.addWidget(QLabel("Alert Logs (Days):"), 0, 0)
         self.num_days_spin = QSpinBox()
+        self.num_days_spin.setButtonSymbols(QSpinBox.NoButtons) # Remove arrows
         self.num_days_spin.setValue(NUM_DAYS_ALERT)
         self.num_days_spin.setRange(1, 365)
         self.num_days_spin.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.num_days_spin.setAlignment(Qt.AlignCenter) # Center text to look better without buttons
         settings_layout.addWidget(self.num_days_spin, 1, 0)
         
         # Column 1: Document Font
@@ -440,7 +445,7 @@ class MainWindow(QMainWindow):
         self.filename_input = QLineEdit()
         self.filename_input.setPlaceholderText("Auto-generated if empty (in folder output)")
         
-        self.clear_filename_btn = QPushButton("✖ Clear")
+        self.clear_filename_btn = QPushButton("✖")
         self.clear_filename_btn.setObjectName("clear_btn")
         self.clear_filename_btn.clicked.connect(self.filename_input.clear)
         
@@ -480,12 +485,8 @@ class MainWindow(QMainWindow):
         self.appendix_status_lbl.setAlignment(Qt.AlignCenter)
         self.appendix_status_lbl.setFixedHeight(20)
         
-        appendix_prefix = QLabel("Status:")
-        appendix_prefix.setObjectName("status_prefix")
-        appendix_prefix.setFixedHeight(20)
-        
+        status_layout.setSpacing(5) # Narrow gap between bar and box
         status_layout.addWidget(self.appendix_progress, stretch=1)
-        status_layout.addWidget(appendix_prefix)
         status_layout.addWidget(self.appendix_status_lbl)
         layout.addLayout(status_layout)
         
@@ -521,11 +522,11 @@ class MainWindow(QMainWindow):
         config_layout.addWidget(self.oswbb_input_dir, 0, 1)
         
         btn_box_in = QHBoxLayout()
-        btn_browse_in = QPushButton("Browse")
+        btn_browse_in = QPushButton("📂")
         btn_browse_in.setObjectName("browse_btn")
         btn_browse_in.clicked.connect(self._browse_oswbb_in)
         
-        btn_clear_in = QPushButton("✖ Clear")
+        btn_clear_in = QPushButton("✖")
         btn_clear_in.setObjectName("clear_btn")
         btn_clear_in.clicked.connect(self.oswbb_input_dir.clear)
         
@@ -541,11 +542,11 @@ class MainWindow(QMainWindow):
         config_layout.addWidget(self.oswbb_output_dir, 1, 1)
         
         btn_box_out = QHBoxLayout()
-        btn_browse_out = QPushButton("Browse")
+        btn_browse_out = QPushButton("📂")
         btn_browse_out.setObjectName("browse_btn")
         btn_browse_out.clicked.connect(self._browse_oswbb_out)
         
-        btn_clear_out = QPushButton("✖ Clear")
+        btn_clear_out = QPushButton("✖")
         btn_clear_out.setObjectName("clear_btn")
         btn_clear_out.clicked.connect(self.oswbb_output_dir.clear)
         
@@ -646,12 +647,8 @@ class MainWindow(QMainWindow):
         self.oswbb_status_lbl.setAlignment(Qt.AlignCenter)
         self.oswbb_status_lbl.setFixedHeight(20)
         
-        oswbb_prefix = QLabel("Status:")
-        oswbb_prefix.setObjectName("status_prefix")
-        oswbb_prefix.setFixedHeight(20)
-        
+        oswbb_status_layout.setSpacing(5)
         oswbb_status_layout.addWidget(self.oswbb_progress, stretch=1)
-        oswbb_status_layout.addWidget(oswbb_prefix)
         oswbb_status_layout.addWidget(self.oswbb_status_lbl)
         layout.addLayout(oswbb_status_layout)
         
@@ -690,11 +687,11 @@ class MainWindow(QMainWindow):
         config_layout.addWidget(self.exa_db_input_dir, 0, 1)
         
         btn_box_db = QHBoxLayout()
-        btn_browse_db = QPushButton("Browse")
+        btn_browse_db = QPushButton("📂")
         btn_browse_db.setObjectName("browse_btn")
         btn_browse_db.clicked.connect(self._browse_exa_db)
         
-        btn_clear_db = QPushButton("✖ Clear")
+        btn_clear_db = QPushButton("✖")
         btn_clear_db.setObjectName("clear_btn")
         btn_clear_db.clicked.connect(self.exa_db_input_dir.clear)
         
@@ -711,11 +708,11 @@ class MainWindow(QMainWindow):
         config_layout.addWidget(self.exa_cell_input_dir, 1, 1)
         
         btn_box_cell = QHBoxLayout()
-        btn_browse_cell = QPushButton("Browse")
+        btn_browse_cell = QPushButton("📂")
         btn_browse_cell.setObjectName("browse_btn")
         btn_browse_cell.clicked.connect(self._browse_exa_cell)
         
-        btn_clear_cell = QPushButton("✖ Clear")
+        btn_clear_cell = QPushButton("✖")
         btn_clear_cell.setObjectName("clear_btn")
         btn_clear_cell.clicked.connect(self.exa_cell_input_dir.clear)
         
@@ -732,11 +729,11 @@ class MainWindow(QMainWindow):
         config_layout.addWidget(self.exa_output_dir, 2, 1)
         
         btn_box_out = QHBoxLayout()
-        btn_browse_out = QPushButton("Browse")
+        btn_browse_out = QPushButton("📂")
         btn_browse_out.setObjectName("browse_btn")
         btn_browse_out.clicked.connect(self._browse_exa_out)
         
-        btn_clear_out = QPushButton("✖ Clear")
+        btn_clear_out = QPushButton("✖")
         btn_clear_out.setObjectName("clear_btn")
         btn_clear_out.clicked.connect(self.exa_output_dir.clear)
         
@@ -829,12 +826,8 @@ class MainWindow(QMainWindow):
         self.exa_status_lbl.setAlignment(Qt.AlignCenter)
         self.exa_status_lbl.setFixedHeight(20)
         
-        exa_prefix = QLabel("Status:")
-        exa_prefix.setObjectName("status_prefix")
-        exa_prefix.setFixedHeight(20)
-        
+        exa_status_layout.setSpacing(5)
         exa_status_layout.addWidget(self.exa_progress, stretch=1)
-        exa_status_layout.addWidget(exa_prefix)
         exa_status_layout.addWidget(self.exa_status_lbl)
         layout.addLayout(exa_status_layout)
         
@@ -1296,11 +1289,11 @@ class MainWindow(QMainWindow):
         output_grid.addWidget(self.merge_output_path, 0, 1)
 
         btn_box_m = QHBoxLayout()
-        btn_browse_merge = QPushButton("Browse")
+        btn_browse_merge = QPushButton("📂")
         btn_browse_merge.setObjectName("browse_btn")
         btn_browse_merge.clicked.connect(self._browse_merge_output)
         
-        btn_clear_merge = QPushButton("✖ Clear")
+        btn_clear_merge = QPushButton("✖")
         btn_clear_merge.setObjectName("clear_btn")
         btn_clear_merge.clicked.connect(self.merge_output_path.clear)
         
@@ -1333,12 +1326,8 @@ class MainWindow(QMainWindow):
         self.merge_status_lbl.setAlignment(Qt.AlignCenter)
         self.merge_status_lbl.setFixedHeight(20)
         
-        merge_prefix = QLabel("Status:")
-        merge_prefix.setObjectName("status_prefix")
-        merge_prefix.setFixedHeight(20)
-        
+        merge_status_layout.setSpacing(5)
         merge_status_layout.addWidget(self.merge_progress_bar, stretch=1)
-        merge_status_layout.addWidget(merge_prefix)
         merge_status_layout.addWidget(self.merge_status_lbl)
         layout.addLayout(merge_status_layout)
 
@@ -1627,17 +1616,11 @@ class MainWindow(QMainWindow):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select DB Log Source", "", "Archives (*.tar.bz2);;All Files (*)")
         if file_path:
             self.exa_db_input_dir.setText(Path(file_path).as_posix())
-        else:
-            folder = QFileDialog.getExistingDirectory(self, "Select DB Log Folder")
-            if folder: self.exa_db_input_dir.setText(Path(folder).as_posix())
 
     def _browse_exa_cell(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select Cell Log Source", "", "Archives (*.tar.bz2);;All Files (*)")
         if path:
             self.exa_cell_input_dir.setText(Path(path).as_posix())
-        else:
-            folder = QFileDialog.getExistingDirectory(self, "Select Cell Log Folder")
-            if folder: self.exa_cell_input_dir.setText(Path(folder).as_posix())
 
     def _browse_exa_out(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")
