@@ -9,7 +9,8 @@ a = Analysis(
     datas=[
         ('oswbb', 'oswbb'),
         ('dist/jre_mini', 'dist/jre_mini'),
-        ('styles', 'styles')
+        ('styles', 'styles'),
+        ('template_docx', 'template_docx')
     ],
     hiddenimports=[],
     hookspath=[],
@@ -31,7 +32,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='OracleHCGenerator_v2.5.1',
+    name='OracleHCGenerator_v2.5.2',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

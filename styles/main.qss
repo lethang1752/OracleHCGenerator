@@ -371,3 +371,69 @@ QStatusBar::item {
     border: none;
 }
 
+/* Global Status Area (Above StatusBar) */
+QWidget#globalStatusContainer {
+    background-color: #FFFFFF;
+    border-top: 1px solid #E5E5E5;
+    padding: 8px 30px;
+}
+
+QLabel#globalStatusLabel {
+    color: #5D5D5D;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+QProgressBar#globalProgressBar {
+    background-color: #FFFFFF;
+    border: 1px solid #D1D1D1;
+    border-radius: 4px;
+    height: 20px;
+    text-align: center;
+    color: #333333;
+    font-weight: 600;
+    font-size: 11px;
+}
+
+QProgressBar#globalProgressBar::chunk {
+    background-color: #A0D2FF;
+    border-radius: 2px;
+}
+
+/* Status Labels for Processes */
+QLabel#status_prefix {
+    color: #5D5D5D;
+    font-weight: 600;
+    font-size: 13px;
+    margin-right: 5px;
+    padding-bottom: 2px; /* Nudge up to match progress/box */
+}
+
+QLabel#status_finished, QLabel#status_failed, QLabel#status_ready {
+    font-weight: bold;
+    font-size: 12px; /* Decreased from 13px for better vertical fit */
+    border-radius: 4px;
+    padding: 0px 12px 2px 12px; /* Added 2px bottom padding to nudge text UP */
+    min-width: 80px;
+    height: 20px;
+    border: 1px solid #D1D1D1;
+}
+
+QLabel#status_ready {
+    color: #5D5D5D;
+    background-color: #EBEBEB;
+    border: 1px solid #D1D1D1;
+}
+
+QLabel#status_finished {
+    color: #107C10; /* Fluent Green */
+    background-color: #DFF6DD;
+    border: 1px solid #107C10;
+}
+
+QLabel#status_failed {
+    color: #D13438; /* Fluent Error Red */
+    background-color: #FDE7E9;
+    border: 1px solid #D13438;
+}
+

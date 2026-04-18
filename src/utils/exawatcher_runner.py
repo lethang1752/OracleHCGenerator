@@ -105,8 +105,9 @@ class ExaWatcherGraphGenerator(QObject):
     Consolidates ExaWatcher HTML data and generates high-quality static images.
     Mimics OSWBB output structure.
     """
-    progress = pyqtSignal(str)
-    finished = pyqtSignal(bool)
+    progress = pyqtSignal(str)      # Sends text logs
+    progress_val = pyqtSignal(int)  # Sends numerical percentage (0-100)
+    finished = pyqtSignal(bool)     # Finished (True = Success)
 
     def __init__(self, db_node_source: str, cell_node_source: str, output_folder: str, 
                  push_targets: list = None, push_mode: str = "overwrite"):
@@ -134,6 +135,7 @@ class ExaWatcherGraphGenerator(QObject):
     def run(self):
         import concurrent.futures
         try:
+            self.progress_val.emit(5)
             self.output_folder.mkdir(parents=True, exist_ok=True)
             self.progress.emit(f"[INFO] Bắt đầu xử lý ExaWatcher (Parallel Mode)...")
             self.progress.emit(f"[PATH] Output folder: {self.output_folder}")
@@ -146,12 +148,14 @@ class ExaWatcherGraphGenerator(QObject):
                 # 1. Process CPU & Memory (Source A: DB/VM)
                 if self.db_log_source.exists():
                     future_to_source[executor.submit(self._process_cpu_mem)] = "DB/VM Source"
+                    self.progress_val.emit(25)
                 else:
                     self.progress.emit(f"[WARN] Nguồn dữ liệu DB/VM không hợp lệ: {self.db_source_path.name}")
 
                 # 2. Process IO (Source B: Cell)
                 if self.cell_log_source.exists():
                     future_to_source[executor.submit(self._process_io)] = "Cell Source"
+                    self.progress_val.emit(50)
                 else:
                     self.progress.emit(f"[WARN] Nguồn dữ liệu Cell không hợp lệ: {self.cell_source_path.name}")
 
@@ -161,6 +165,8 @@ class ExaWatcherGraphGenerator(QObject):
                     try:
                         count = future.result()
                         image_count += count
+                        current_prog = 50 + (25 if image_count > 0 else 0)
+                        self.progress_val.emit(min(current_prog, 85))
                         self.progress.emit(f"[SUCCESS] {source_name} xử lý xong (Tạo được {count} ảnh).")
                     except Exception as e:
                         err_detail = traceback.format_exc()
@@ -178,14 +184,17 @@ class ExaWatcherGraphGenerator(QObject):
                 return
 
             self.progress.emit(f"[SUCCESS] Hoàn tất tạo {image_count} biểu đồ ExaWatcher.")
+            self.progress_val.emit(90)
             
             # 3. PUSH RESULTS (Synchronize files to target folders)
             if self.push_targets:
+                self.progress_val.emit(95)
                 push_success = self._push_results()
                 if not push_success:
                     self.finished.emit(False)
                     return
 
+            self.progress_val.emit(100)
             self.finished.emit(True)
 
         except Exception as e:

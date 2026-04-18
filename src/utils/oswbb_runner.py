@@ -10,8 +10,9 @@ class OSWBBGraphGenerator(QObject):
     Wrapper để chạy công cụ OSWBBA Java.
     Khởi tạo cùng một JRE nội bộ được tạo từ jlink.
     """
-    progress = pyqtSignal(str)   # Gửi log dạng text
-    finished = pyqtSignal(bool)  # Kết thúc (True = Thành công)
+    progress = pyqtSignal(str)      # Sends text logs
+    progress_val = pyqtSignal(int)  # Sends numerical percentage (0-100)
+    finished = pyqtSignal(bool)     # Finished (True = Success)
     
     def __init__(self, log_folder: str, output_folder: str, gen_dashboard: bool = True, push_targets: list = None, push_mode: str = "overwrite", jar_filename: str = "oswbba.jar"):
         super().__init__()
@@ -70,6 +71,7 @@ class OSWBBGraphGenerator(QObject):
         
     def _run_java_process(self):
         try:
+            self.progress_val.emit(5)
             base_path = self._get_base_path()
             
             # Paths to Check (Bundle vs Source)
@@ -107,6 +109,7 @@ class OSWBBGraphGenerator(QObject):
                 return
 
             # --- FILTERING LOGIC ---
+            self.progress_val.emit(15)
             self.progress.emit("[INFO] Đang lọc dữ liệu chỉ lấy 5 nhóm thông số quan trọng để tăng tốc...")
             import tempfile
             import time
@@ -164,6 +167,7 @@ class OSWBBGraphGenerator(QObject):
                 creation_flags = 0x08000000 | 0x00004000
 
             # Run Process with stdin/stdout pipes
+            self.progress_val.emit(30)
             self.process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
@@ -216,14 +220,18 @@ class OSWBBGraphGenerator(QObject):
                 for root, dirs, files in os.walk(analysis_base):
                     if "generated_files" in dirs:
                         gen_path = Path(root) / "generated_files"
-                        dest_path = Path(self.output_folder) / "generated_files"
+                        dest_dir = Path(self.output_folder)
+                        dest_dir.mkdir(parents=True, exist_ok=True)
                         
-                        # Move the folder as requested
-                        if dest_path.exists():
-                            shutil.rmtree(dest_path)
-                        
-                        shutil.move(str(gen_path), str(dest_path))
-                        self.progress.emit(f"[SUCCESS] Đã chuyển folder {gen_path.name} vào {self.output_folder}")
+                        self.progress.emit(f"[INFO] Đang di chuyển nội dung từ {gen_path} vào {dest_dir}...")
+                        for item in gen_path.iterdir():
+                            target_item = dest_dir / item.name
+                            if target_item.exists():
+                                if target_item.is_dir(): shutil.rmtree(target_item)
+                                else: target_item.unlink()
+                            shutil.move(str(item), str(target_item))
+                            
+                        self.progress.emit(f"[SUCCESS] Đã chuyển các tệp từ {gen_path.name} vào {self.output_folder}")
                         found_gen_folder = True
                         break
                 
@@ -231,17 +239,20 @@ class OSWBBGraphGenerator(QObject):
                     self.progress.emit("[WARNING] Không tìm thấy thư mục 'generated_files' sau khi chạy Option D.")
             
             # --- END OF MAIN PROCESSING ---
+            self.progress_val.emit(85)
             self._cleanup_temp_dir()
             
             if return_code == 0 or automation_triggered or self.gen_dashboard:
                 # 3. PUSH RESULTS (New Feature)
                 if self.push_targets:
+                    self.progress_val.emit(95)
                     push_success = self._push_results()
                     if not push_success:
                         self.finished.emit(False)
                         return
 
                 self.progress.emit("[SUCCESS] OSWBBA Generator hoàn tất thành công.")
+                self.progress_val.emit(100)
                 self.finished.emit(True)
             else:
                 self.progress.emit(f"[ERROR] OSWBBA thoái ra với lỗi code {return_code}.")
@@ -297,20 +308,17 @@ class OSWBBGraphGenerator(QObject):
                 self.progress.emit("[WARNING] Không thể xóa thư mục 'gif', vui lòng xóa thủ công.")
 
     def _push_results(self) -> bool:
-        """Sao chép thư mục generated_files tới các đích được chọn"""
+        """Sao chép kết quả biểu đồ tới các đích được chọn"""
         import shutil
         import datetime
         from pathlib import Path
         
-        source_gen = Path(self.output_folder) / "generated_files"
-        if not source_gen.exists():
-            # If we generated GIFs instead of Dashboard
-            if not any(Path(self.output_folder).iterdir()):
-                self.progress.emit("[ERROR] Không có dữ liệu kết quả để Push.")
-                return False
-            # If generated_files is missing, do not fall back to the entire directory 
-            # to avoid copying the whole project/app root.
-            self.progress.emit("[ERROR] Không tìm thấy thư mục 'generated_files'. Không thể thực hiện Push.")
+        source_gen = Path(self.output_folder)
+        # Kiểm tra xem có dữ liệu ảnh trong thư mục hay không (ít nhất 1 file .jpg hoặc .png hoặc .gif)
+        has_content = any(source_gen.glob("*.jpg")) or any(source_gen.glob("*.png")) or any(source_gen.glob("*.gif"))
+        
+        if not source_gen.exists() or not has_content:
+            self.progress.emit("[ERROR] Không tìm thấy dữ liệu ảnh để Push. Vui lòng kiểm tra thư mục đầu ra.")
             return False
             
         self.progress.emit(f"[SYNC] Bắt đầu đẩy dữ liệu tới {len(self.push_targets)} mục tiêu...")

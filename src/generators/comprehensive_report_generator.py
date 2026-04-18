@@ -332,17 +332,39 @@ class ComprehensiveHealthcareReportGenerator:
         
         # 1.3.3 I/O
         self.doc.add_heading("I/O", level=3)
-        for node in nodes:
-            inst = node.get('instance_name', f"NODE{node.get('node_id')}")
-            self._add_instance_name(inst)
-            io_candidates = [
-                ['OSWg_OS_IO_PB.jpg', 'OSWg_IO_PB.jpg', 'Exa_IO_Summary.png']
-            ]
-            self._add_node_images(node.get('data_dir', ''), io_candidates)
-            
+        
+        # Check if we are using ExaWatcher or OSWBB for Node 1
+        node1_dir = Path(nodes[0].get('data_dir', '')) if nodes else None
+        is_oswbb = node1_dir and (node1_dir / 'generated_files').exists()
+        is_exawatcher = node1_dir and (node1_dir / 'exawatcher_files').exists()
+        
+        # User Request: If using exawatcher_files, consolidate to 1 image from Node 1.
+        # If using OSWBB (generated_files) or others, keep per-node logic.
+        if is_exawatcher and not is_oswbb:
+            # --- CONSOLIDATED EXAWATCHER LOGIC ---
+            if nodes:
+                io_candidates = [['OSWg_OS_IO_PB.jpg', 'OSWg_IO_PB.jpg', 'Exa_IO_Summary.png']]
+                self._add_node_images(nodes[0].get('data_dir', ''), io_candidates)
+
+            # For Primary roles, show node-specific Wait Classes tables
             if self.db_role == 'primary':
-                self.doc.add_paragraph("- Wait Classes by Total Wait Time")
-                self._add_awr_table(node.get('awr', {}), 'wait class', align_left_cols=[0])
+                for node in nodes:
+                    inst = node.get('instance_name', f"NODE{node.get('node_id')}")
+                    self._add_instance_name(inst)
+                    self.doc.add_paragraph("- Wait Classes by Total Wait Time")
+                    self._add_awr_table(node.get('awr', {}), 'wait class', align_left_cols=[0])
+        else:
+            # --- STANDARD PER-NODE LOGIC (OSWBB / Fallback) ---
+            for node in nodes:
+                inst = node.get('instance_name', f"NODE{node.get('node_id')}")
+                self._add_instance_name(inst)
+                
+                io_candidates = [['OSWg_OS_IO_PB.jpg', 'OSWg_IO_PB.jpg', 'Exa_IO_Summary.png']]
+                self._add_node_images(node.get('data_dir', ''), io_candidates)
+                
+                if self.db_role == 'primary':
+                    self.doc.add_paragraph("- Wait Classes by Total Wait Time")
+                    self._add_awr_table(node.get('awr', {}), 'wait class', align_left_cols=[0])
         
         if self.db_role == 'primary':
             # 1.3.4 Top Queries

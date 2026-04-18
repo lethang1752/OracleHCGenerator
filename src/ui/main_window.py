@@ -171,9 +171,10 @@ class MainWindow(QMainWindow):
         
         # Explicitly initialize Status Bar to prevent UI jumping
         self.setStatusBar(QStatusBar(self))
-        self.statusBar().showMessage("Sẵn sàng")
+        self.statusBar().showMessage("Ready")
         
         self._init_ui()
+        self._apply_pointing_cursor(self) # Apply hand cursor to all buttons
         self._apply_modern_shadows()
         self._load_stylesheet()
         logger.info(f"Application started: {APP_NAME} v{APP_VERSION}")
@@ -330,6 +331,11 @@ class MainWindow(QMainWindow):
         # Initial Title Update
         self._on_sidebar_changed(0)
 
+    def _apply_pointing_cursor(self, widget):
+        """Recursively apply pointing hand cursor to all buttons"""
+        for child in widget.findChildren(QPushButton):
+            child.setCursor(Qt.PointingHandCursor)
+
     def _on_sidebar_changed(self, index):
         """Redundant method, keeping for stability or removing completely"""
         pass
@@ -378,11 +384,11 @@ class MainWindow(QMainWindow):
         folder_layout = QVBoxLayout()
         
         list_action_box = QHBoxLayout()
-        btn_add_node = QPushButton("+ Add Node Folder")
+        btn_add_node = QPushButton("➕ Add Node Folder")
         btn_add_node.setObjectName("browse_btn")
         btn_add_node.clicked.connect(self._add_node_folder)
         
-        btn_clear_nodes = QPushButton("Clear All")
+        btn_clear_nodes = QPushButton("✖ Clear All")
         btn_clear_nodes.setObjectName("clear_btn")
         btn_clear_nodes.clicked.connect(self._clear_nodes)
         
@@ -429,9 +435,18 @@ class MainWindow(QMainWindow):
         
         # Column 3: Custom Filename (Giving more width)
         settings_layout.addWidget(QLabel("Custom Filename (Optional):"), 0, 3)
+        
+        file_row = QHBoxLayout()
         self.filename_input = QLineEdit()
         self.filename_input.setPlaceholderText("Auto-generated if empty (in folder output)")
-        settings_layout.addWidget(self.filename_input, 1, 3)
+        
+        self.clear_filename_btn = QPushButton("✖ Clear")
+        self.clear_filename_btn.setObjectName("clear_btn")
+        self.clear_filename_btn.clicked.connect(self.filename_input.clear)
+        
+        file_row.addWidget(self.filename_input)
+        file_row.addWidget(self.clear_filename_btn)
+        settings_layout.addLayout(file_row, 1, 3)
         
         # Adjusting column stretches to make Column 0, 1, 2 narrower
         settings_layout.setColumnStretch(0, 1)
@@ -448,11 +463,31 @@ class MainWindow(QMainWindow):
         self.generate_btn.setObjectName("main_action_btn")
         self.generate_btn.clicked.connect(self._on_generate_clicked)
         action_layout.addWidget(self.generate_btn)
-        
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        action_layout.addWidget(self.progress_bar)
         layout.addLayout(action_layout)
+        
+        # --- FIXED STATUS AREA ---
+        status_layout = QHBoxLayout()
+        self.appendix_progress = QProgressBar()
+        self.appendix_progress.setObjectName("globalProgressBar")
+        self.appendix_progress.setFixedHeight(20)
+        self.appendix_progress.setTextVisible(True)
+        self.appendix_progress.setFormat(" %p% ")
+        self.appendix_progress.setAlignment(Qt.AlignCenter)
+        self.appendix_progress.setValue(0)
+        
+        self.appendix_status_lbl = QLabel("READY")
+        self.appendix_status_lbl.setObjectName("status_ready")
+        self.appendix_status_lbl.setAlignment(Qt.AlignCenter)
+        self.appendix_status_lbl.setFixedHeight(20)
+        
+        appendix_prefix = QLabel("Status:")
+        appendix_prefix.setObjectName("status_prefix")
+        appendix_prefix.setFixedHeight(20)
+        
+        status_layout.addWidget(self.appendix_progress, stretch=1)
+        status_layout.addWidget(appendix_prefix)
+        status_layout.addWidget(self.appendix_status_lbl)
+        layout.addLayout(status_layout)
         
         # 4. Logs
         log_group = QGroupBox("CONSOLE LOG")
@@ -484,10 +519,19 @@ class MainWindow(QMainWindow):
         self.oswbb_input_dir.setAcceptDrops(True)
         self.oswbb_input_dir.installEventFilter(self)
         config_layout.addWidget(self.oswbb_input_dir, 0, 1)
+        
+        btn_box_in = QHBoxLayout()
         btn_browse_in = QPushButton("Browse")
         btn_browse_in.setObjectName("browse_btn")
         btn_browse_in.clicked.connect(self._browse_oswbb_in)
-        config_layout.addWidget(btn_browse_in, 0, 2)
+        
+        btn_clear_in = QPushButton("✖ Clear")
+        btn_clear_in.setObjectName("clear_btn")
+        btn_clear_in.clicked.connect(self.oswbb_input_dir.clear)
+        
+        btn_box_in.addWidget(btn_browse_in)
+        btn_box_in.addWidget(btn_clear_in)
+        config_layout.addLayout(btn_box_in, 0, 2)
         
         config_layout.addWidget(QLabel("Output Images Folder:"), 1, 0)
         self.oswbb_output_dir = QLineEdit()
@@ -495,10 +539,19 @@ class MainWindow(QMainWindow):
         self.oswbb_output_dir.setAcceptDrops(True)
         self.oswbb_output_dir.installEventFilter(self)
         config_layout.addWidget(self.oswbb_output_dir, 1, 1)
+        
+        btn_box_out = QHBoxLayout()
         btn_browse_out = QPushButton("Browse")
         btn_browse_out.setObjectName("browse_btn")
         btn_browse_out.clicked.connect(self._browse_oswbb_out)
-        config_layout.addWidget(btn_browse_out, 1, 2)
+        
+        btn_clear_out = QPushButton("✖ Clear")
+        btn_clear_out.setObjectName("clear_btn")
+        btn_clear_out.clicked.connect(self.oswbb_output_dir.clear)
+        
+        btn_box_out.addWidget(btn_browse_out)
+        btn_box_out.addWidget(btn_clear_out)
+        config_layout.addLayout(btn_box_out, 1, 2)
         
         config_layout.addWidget(QLabel("Analysis Tool (JAR):"), 2, 0)
         self.oswbb_jar_select = QComboBox()
@@ -520,7 +573,7 @@ class MainWindow(QMainWindow):
         btn_add_target.setObjectName("browse_btn")
         btn_add_target.clicked.connect(self._on_oswbb_add_push_folder)
         
-        btn_clear_target = QPushButton("🗑 Clear All")
+        btn_clear_target = QPushButton("✖ Clear All")
         btn_clear_target.setObjectName("clear_btn")
         btn_clear_target.clicked.connect(self._on_oswbb_clear_push_folders)
         
@@ -578,6 +631,30 @@ class MainWindow(QMainWindow):
         action_layout.addWidget(self.stop_oswbb_btn)
         layout.addLayout(action_layout)
         
+        # --- FIXED STATUS AREA ---
+        oswbb_status_layout = QHBoxLayout()
+        self.oswbb_progress = QProgressBar()
+        self.oswbb_progress.setObjectName("globalProgressBar")
+        self.oswbb_progress.setFixedHeight(20)
+        self.oswbb_progress.setTextVisible(True)
+        self.oswbb_progress.setFormat(" %p% ")
+        self.oswbb_progress.setAlignment(Qt.AlignCenter)
+        self.oswbb_progress.setValue(0)
+        
+        self.oswbb_status_lbl = QLabel("READY")
+        self.oswbb_status_lbl.setObjectName("status_ready")
+        self.oswbb_status_lbl.setAlignment(Qt.AlignCenter)
+        self.oswbb_status_lbl.setFixedHeight(20)
+        
+        oswbb_prefix = QLabel("Status:")
+        oswbb_prefix.setObjectName("status_prefix")
+        oswbb_prefix.setFixedHeight(20)
+        
+        oswbb_status_layout.addWidget(self.oswbb_progress, stretch=1)
+        oswbb_status_layout.addWidget(oswbb_prefix)
+        oswbb_status_layout.addWidget(self.oswbb_status_lbl)
+        layout.addLayout(oswbb_status_layout)
+        
         # 4. CONSOLE LOG
         log_group = QGroupBox("JAVA CONSOLE LIVE")
         log_layout = QVBoxLayout()
@@ -611,10 +688,19 @@ class MainWindow(QMainWindow):
         self.exa_db_input_dir.setAcceptDrops(True)
         self.exa_db_input_dir.installEventFilter(self)
         config_layout.addWidget(self.exa_db_input_dir, 0, 1)
+        
+        btn_box_db = QHBoxLayout()
         btn_browse_db = QPushButton("Browse")
         btn_browse_db.setObjectName("browse_btn")
         btn_browse_db.clicked.connect(self._browse_exa_db)
-        config_layout.addWidget(btn_browse_db, 0, 2)
+        
+        btn_clear_db = QPushButton("✖ Clear")
+        btn_clear_db.setObjectName("clear_btn")
+        btn_clear_db.clicked.connect(self.exa_db_input_dir.clear)
+        
+        btn_box_db.addWidget(btn_browse_db)
+        btn_box_db.addWidget(btn_clear_db)
+        config_layout.addLayout(btn_box_db, 0, 2)
         
         # IO Source (Cell)
         config_layout.addWidget(QLabel("Cell Log (IO):"), 1, 0)
@@ -623,10 +709,19 @@ class MainWindow(QMainWindow):
         self.exa_cell_input_dir.setAcceptDrops(True)
         self.exa_cell_input_dir.installEventFilter(self)
         config_layout.addWidget(self.exa_cell_input_dir, 1, 1)
+        
+        btn_box_cell = QHBoxLayout()
         btn_browse_cell = QPushButton("Browse")
         btn_browse_cell.setObjectName("browse_btn")
         btn_browse_cell.clicked.connect(self._browse_exa_cell)
-        config_layout.addWidget(btn_browse_cell, 1, 2)
+        
+        btn_clear_cell = QPushButton("✖ Clear")
+        btn_clear_cell.setObjectName("clear_btn")
+        btn_clear_cell.clicked.connect(self.exa_cell_input_dir.clear)
+        
+        btn_box_cell.addWidget(btn_browse_cell)
+        btn_box_cell.addWidget(btn_clear_cell)
+        config_layout.addLayout(btn_box_cell, 1, 2)
 
         # Output
         config_layout.addWidget(QLabel("Output Images Folder:"), 2, 0)
@@ -635,10 +730,19 @@ class MainWindow(QMainWindow):
         self.exa_output_dir.setAcceptDrops(True)
         self.exa_output_dir.installEventFilter(self)
         config_layout.addWidget(self.exa_output_dir, 2, 1)
+        
+        btn_box_out = QHBoxLayout()
         btn_browse_out = QPushButton("Browse")
         btn_browse_out.setObjectName("browse_btn")
         btn_browse_out.clicked.connect(self._browse_exa_out)
-        config_layout.addWidget(btn_browse_out, 2, 2)
+        
+        btn_clear_out = QPushButton("✖ Clear")
+        btn_clear_out.setObjectName("clear_btn")
+        btn_clear_out.clicked.connect(self.exa_output_dir.clear)
+        
+        btn_box_out.addWidget(btn_browse_out)
+        btn_box_out.addWidget(btn_clear_out)
+        config_layout.addLayout(btn_box_out, 2, 2)
         
         config_layout.setColumnStretch(1, 1)
         config_group.setLayout(config_layout)
@@ -654,7 +758,7 @@ class MainWindow(QMainWindow):
         btn_add_target.setObjectName("browse_btn")
         btn_add_target.clicked.connect(self._on_exa_add_push_folder)
         
-        btn_clear_target = QPushButton("🗑 Clear All")
+        btn_clear_target = QPushButton("✖ Clear All")
         btn_clear_target.setObjectName("clear_btn")
         btn_clear_target.clicked.connect(self._on_exa_clear_push_folders)
         
@@ -710,6 +814,30 @@ class MainWindow(QMainWindow):
         action_layout.addWidget(self.stop_exa_btn)
         layout.addLayout(action_layout)
         
+        # --- FIXED STATUS AREA ---
+        exa_status_layout = QHBoxLayout()
+        self.exa_progress = QProgressBar()
+        self.exa_progress.setObjectName("globalProgressBar")
+        self.exa_progress.setFixedHeight(20)
+        self.exa_progress.setTextVisible(True)
+        self.exa_progress.setFormat(" %p% ")
+        self.exa_progress.setAlignment(Qt.AlignCenter)
+        self.exa_progress.setValue(0)
+        
+        self.exa_status_lbl = QLabel("READY")
+        self.exa_status_lbl.setObjectName("status_ready")
+        self.exa_status_lbl.setAlignment(Qt.AlignCenter)
+        self.exa_status_lbl.setFixedHeight(20)
+        
+        exa_prefix = QLabel("Status:")
+        exa_prefix.setObjectName("status_prefix")
+        exa_prefix.setFixedHeight(20)
+        
+        exa_status_layout.addWidget(self.exa_progress, stretch=1)
+        exa_status_layout.addWidget(exa_prefix)
+        exa_status_layout.addWidget(self.exa_status_lbl)
+        layout.addLayout(exa_status_layout)
+        
         # 4. CONSOLE LOG
         log_group = QGroupBox("EXAWATCHER PROCESSING LOG")
         log_layout = QVBoxLayout()
@@ -728,6 +856,7 @@ class MainWindow(QMainWindow):
     def _add_node_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Node Folder")
         if folder:
+            folder = Path(folder).as_posix()
             if folder in self.log_folders:
                 QMessageBox.information(self, "Duplicate", "This folder is already added.")
                 return
@@ -759,7 +888,7 @@ class MainWindow(QMainWindow):
         # Mở popup Select Native của Windows thay vì Popup dạng Find Directory cũ
         folder = QFileDialog.getExistingDirectory(self, "Select Target Folder", "", QFileDialog.ShowDirsOnly)
         if folder:
-            path = str(Path(folder))
+            path = Path(folder).as_posix()
             if path not in self.oswbb_push_folders:
                 self.oswbb_push_folders.append(path)
                 self._update_push_target_list()
@@ -778,7 +907,7 @@ class MainWindow(QMainWindow):
     def _on_exa_add_push_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Target Folder", "", QFileDialog.ShowDirsOnly)
         if folder:
-            path = str(Path(folder))
+            path = Path(folder).as_posix()
             if path not in self.exa_push_folders:
                 self.exa_push_folders.append(path)
                 self._update_exa_push_target_list()
@@ -823,34 +952,46 @@ class MainWindow(QMainWindow):
             
             if watched == self.node_list_widget:
                 for u in urls:
-                    p = u.toLocalFile()
+                    p = Path(u.toLocalFile()).as_posix()
                     if Path(p).is_dir() and p not in self.log_folders:
                         self.log_folders.append(p)
                         self.node_list_widget.addItem(f"Node {len(self.log_folders)}: {p}")
                 return True
             elif watched == self.push_target_list:
                 for u in urls:
-                    p = u.toLocalFile()
+                    p = Path(u.toLocalFile()).as_posix()
                     if Path(p).is_dir() and p not in self.oswbb_push_folders:
                         self.oswbb_push_folders.append(p)
                         self._update_push_target_list()
                 return True
             elif watched == self.exa_push_target_list: # Added logic for ExaWatcher
                 for u in urls:
-                    p = u.toLocalFile()
+                    p = Path(u.toLocalFile()).as_posix()
                     if Path(p).is_dir() and p not in self.exa_push_folders:
                         self.exa_push_folders.append(p)
                         self._update_exa_push_target_list()
                 return True
             elif watched == self.merge_file_list:
                 for u in urls:
-                    p = u.toLocalFile()
+                    p = Path(u.toLocalFile()).as_posix()
                     if p.lower().endswith(".docx"): self._merge_add_direct(p)
                 return True
             elif isinstance(watched, QLineEdit):
-                watched.setText(path)
+                watched.setText(Path(path).as_posix())
                 return True
             return True
+        if watched in targets and event.type() == QEvent.KeyPress:
+            if event.key() == Qt.Key_Delete:
+                if watched == self.merge_file_list:
+                    self._merge_remove_file()
+                elif watched == self.node_list_widget:
+                    row = self.node_list_widget.currentRow()
+                    if row >= 0:
+                        self.node_list_widget.takeItem(row)
+                        self.log_folders.pop(row)
+                        self._log(f"Removed item at row {row+1}")
+                return True
+
         return super().eventFilter(watched, event)
 
     def _merge_add_direct(self, path):
@@ -865,12 +1006,12 @@ class MainWindow(QMainWindow):
     def _browse_oswbb_in(self):
         folder = QFileDialog.getExistingDirectory(self, "Select OSWBB Input Folder")
         if folder:
-            self.oswbb_input_dir.setText(folder)
+            self.oswbb_input_dir.setText(Path(folder).as_posix())
             
     def _browse_oswbb_out(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")
         if folder:
-            self.oswbb_output_dir.setText(folder)
+            self.oswbb_output_dir.setText(Path(folder).as_posix())
 
     def _on_generate_oswbb_clicked(self, push=False):
         in_dir = self.oswbb_input_dir.text().strip()
@@ -883,7 +1024,7 @@ class MainWindow(QMainWindow):
         # Default output path if empty
         if not out_dir:
             from ..config import BASE_DIR
-            out_dir = str(BASE_DIR / "generated_files")
+            out_dir = (BASE_DIR / "generated_files").as_posix()
             self.oswbb_output_dir.setText(out_dir)
             self._log(f"[INFO] Automatically selected OSWBB output folder: {out_dir}")
             
@@ -895,7 +1036,12 @@ class MainWindow(QMainWindow):
         self.gen_oswbb_btn.setEnabled(False)
         self.gen_push_oswbb_btn.setEnabled(False)
         self.stop_oswbb_btn.setEnabled(True)
-        self.oswbb_log_text.append("[SYSTEM] Khởi chạy máy chủ đồ họa OSWBB Java...")
+        self.oswbb_progress.setRange(0, 100)
+        self.oswbb_progress.setValue(0)
+        self.oswbb_progress.setVisible(True)
+        self.oswbb_status_lbl.setText("RUNNING")
+        self.oswbb_status_lbl.setObjectName("status_ready") # Keep gray box style for running
+        self.oswbb_status_lbl.setStyle(self.oswbb_status_lbl.style())
         
         push_targets = self.oswbb_push_folders if push else []
         push_mode = "timestamp" if self.push_mode_timestamp.isChecked() else "overwrite"
@@ -915,6 +1061,7 @@ class MainWindow(QMainWindow):
         
         self.oswbb_thread.started.connect(self.oswbb_worker.run)
         self.oswbb_worker.progress.connect(self._on_oswbb_log)
+        self.oswbb_worker.progress_val.connect(self.oswbb_progress.setValue)
         self.oswbb_worker.finished.connect(self._on_oswbb_finished)
         self.oswbb_worker.finished.connect(self.oswbb_thread.quit)
         
@@ -931,12 +1078,17 @@ class MainWindow(QMainWindow):
         self.gen_oswbb_btn.setEnabled(True)
         self.gen_push_oswbb_btn.setEnabled(True)
         self.stop_oswbb_btn.setEnabled(False)
+        self.oswbb_progress.setRange(0, 100)
+        self.oswbb_progress.setValue(100 if success else 0)
+        
         if success:
-            QMessageBox.information(self, "Thành công", "Tiến trình OSWBB hoàn tất. Vui lòng kiểm tra thư mục đích!")
+            self.oswbb_status_lbl.setText("FINISHED")
+            self.oswbb_status_lbl.setObjectName("status_finished")
+            self.oswbb_status_lbl.setStyle(self.oswbb_status_lbl.style()) # Refresh style
         else:
-            # We don't show error box if user stopped it manually (process return code -1 or similar)
-            # but currently we just rely on log info
-            QMessageBox.warning(self, "Lỗi Java", "Tiến trình thu thập ảnh gặp lỗi hoặc quá trình Push thất bại, kiểm tra console log.")
+            self.oswbb_status_lbl.setText("FAILED")
+            self.oswbb_status_lbl.setObjectName("status_failed")
+            self.oswbb_status_lbl.setStyle(self.oswbb_status_lbl.style())
 
     def _on_stop_oswbb_clicked(self):
         if hasattr(self, 'oswbb_worker') and self.oswbb_worker:
@@ -953,7 +1105,7 @@ class MainWindow(QMainWindow):
     
     def _on_parse_progress(self, message: str, value: int):
         self._log(message)
-        self.progress_bar.setValue(value)
+        self.appendix_progress.setValue(value)
     
     def _on_parse_finished(self, data: dict):
         self.parsed_data = data
@@ -962,20 +1114,28 @@ class MainWindow(QMainWindow):
     
     def _on_parse_error(self, error_msg: str):
         self._log(f"[ERROR] {error_msg}")
-        self.progress_bar.setVisible(False)
+        self.appendix_progress.setVisible(True) # Keep visible to show error on status
+        self.appendix_progress.setValue(0)
+        self.appendix_status_lbl.setText("FAILED")
+        self.appendix_status_lbl.setObjectName("status_failed")
+        self.appendix_status_lbl.setStyle(self.appendix_status_lbl.style())
         self.generate_btn.setEnabled(True)
-        QMessageBox.critical(self, "Parse Error", error_msg)
     
 
     def _on_generate_clicked(self):
         if not self.log_folders:
-            QMessageBox.warning(self, "Missing Input", "Please add at least one Node data folder.")
+            self.appendix_status_lbl.setText("MISSING INPUT")
+            self.appendix_status_lbl.setObjectName("status_failed")
+            self.appendix_status_lbl.setStyle(self.appendix_status_lbl.style())
             return
 
+        self.appendix_status_lbl.setText("RUNNING") # Clear previous
+        self.appendix_status_lbl.setObjectName("status_ready")
+        self.appendix_status_lbl.setStyle(self.appendix_status_lbl.style())
         self.generate_btn.setEnabled(False)
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
+        self.appendix_progress.setVisible(True)
+        self.appendix_progress.setRange(0, 100)
+        self.appendix_progress.setValue(0)
         self._log(f"Starting workflow for {len(self.log_folders)} nodes...")
         self._on_parse_clicked()
 
@@ -1024,23 +1184,27 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._log(f"[ERROR] Fault initiating generator: {str(e)}")
             logger.exception("Generator initiation error")
-            self.progress_bar.setVisible(False)
+            self.appendix_progress.setVisible(False)
             self.generate_btn.setEnabled(True)
 
     def _on_generation_finished(self, success: bool, docx_path: str, filename: str):
         """Callback when background generation completes"""
-        self.progress_bar.setVisible(False)
         self.generate_btn.setEnabled(True)
+        self.appendix_progress.setValue(100 if success else 0)
         self.statusBar().showMessage("Workflow Finished")
         
         if success:
             self._log(f"[SUCCESS] Report saved: {docx_path}")
-            QMessageBox.information(self, "Complete", f"Workflow completed successfully!\nFile: {filename}.docx")
+            self.appendix_status_lbl.setText("FINISHED")
+            self.appendix_status_lbl.setObjectName("status_finished")
         else:
             # If docx_path contains error message (from GeneratorWorker)
             error_msg = docx_path if docx_path else "Unknown error"
             self._log(f"[ERROR] Report generation failed: {error_msg}")
-            QMessageBox.warning(self, "Failed", f"Data was parsed but document generation failed:\n{error_msg}")
+            self.appendix_status_lbl.setText("FAILED")
+            self.appendix_status_lbl.setObjectName("status_failed")
+        
+        self.appendix_status_lbl.setStyle(self.appendix_status_lbl.style())
     
     def _log(self, message: str):
         self.log_text.append(message)
@@ -1052,41 +1216,29 @@ class MainWindow(QMainWindow):
     def _create_merge_tab(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout()
-        layout.setSpacing(15)
+        layout.setSpacing(8)
+        layout.setContentsMargins(15, 10, 15, 10)
 
         # ── 1. File Queue ──────────────────────────────────────────
         queue_group = QGroupBox("1. DOCUMENTS TO MERGE")
         queue_layout = QVBoxLayout()
+        queue_layout.setSpacing(8) # Tighten internal list area
 
         # Action buttons row
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
 
         btn_add = QPushButton("➕ Add Files")
         btn_add.setObjectName("browse_btn")
         btn_add.clicked.connect(self._merge_add_files)
-
-        btn_remove = QPushButton("🗑 Remove")
-        btn_remove.setObjectName("clear_btn")
-        btn_remove.clicked.connect(self._merge_remove_file)
-
-        btn_up = QPushButton("▲ Move Up")
-        btn_up.setObjectName("browse_btn")
-        btn_up.clicked.connect(self._merge_move_up)
-
-        btn_down = QPushButton("▼ Move Down")
-        btn_down.setObjectName("browse_btn")
-        btn_down.clicked.connect(self._merge_move_down)
 
         btn_clear_all = QPushButton("✖ Clear All")
         btn_clear_all.setObjectName("clear_btn")
         btn_clear_all.clicked.connect(self._merge_clear_all)
 
         btn_row.addWidget(btn_add)
-        btn_row.addWidget(btn_remove)
-        btn_row.addWidget(btn_up)
-        btn_row.addWidget(btn_down)
-        btn_row.addStretch()
         btn_row.addWidget(btn_clear_all)
+        btn_row.addStretch()
         queue_layout.addLayout(btn_row)
 
         # Draggable list widget - no alternating colors to prevent ghost rows
@@ -1126,7 +1278,7 @@ class MainWindow(QMainWindow):
 
         # ── Đặt 2 GroupBox nằm ngang nhau ────────────────────────────
         top_row = QHBoxLayout()
-        top_row.setSpacing(12)
+        top_row.setSpacing(10)
         top_row.addWidget(queue_group, stretch=3)   # 60% chiều rộng
         top_row.addWidget(sort_group, stretch=2)    # 40% chiều rộng
         layout.addLayout(top_row, stretch=1)        # Chiếm toàn bộ không gian dọc còn lại
@@ -1143,10 +1295,18 @@ class MainWindow(QMainWindow):
         self.merge_output_path.installEventFilter(self)
         output_grid.addWidget(self.merge_output_path, 0, 1)
 
+        btn_box_m = QHBoxLayout()
         btn_browse_merge = QPushButton("Browse")
         btn_browse_merge.setObjectName("browse_btn")
         btn_browse_merge.clicked.connect(self._browse_merge_output)
-        output_grid.addWidget(btn_browse_merge, 0, 2)
+        
+        btn_clear_merge = QPushButton("✖ Clear")
+        btn_clear_merge.setObjectName("clear_btn")
+        btn_clear_merge.clicked.connect(self.merge_output_path.clear)
+        
+        btn_box_m.addWidget(btn_browse_merge)
+        btn_box_m.addWidget(btn_clear_merge)
+        output_grid.addLayout(btn_box_m, 0, 2)
 
         output_grid.setColumnStretch(1, 1)
         output_group.setLayout(output_grid)
@@ -1157,15 +1317,32 @@ class MainWindow(QMainWindow):
         self.merge_btn.setObjectName("main_action_btn")
         self.merge_btn.clicked.connect(self._on_merge_clicked)
         layout.addWidget(self.merge_btn)
+        
+        # --- FIXED STATUS AREA ---
+        merge_status_layout = QHBoxLayout()
+        self.merge_progress_bar = QProgressBar()
+        self.merge_progress_bar.setObjectName("globalProgressBar")
+        self.merge_progress_bar.setFixedHeight(20)
+        self.merge_progress_bar.setTextVisible(True)
+        self.merge_progress_bar.setFormat(" %p% ")
+        self.merge_progress_bar.setAlignment(Qt.AlignCenter)
+        self.merge_progress_bar.setValue(0)
+        
+        self.merge_status_lbl = QLabel("READY")
+        self.merge_status_lbl.setObjectName("status_ready")
+        self.merge_status_lbl.setAlignment(Qt.AlignCenter)
+        self.merge_status_lbl.setFixedHeight(20)
+        
+        merge_prefix = QLabel("Status:")
+        merge_prefix.setObjectName("status_prefix")
+        merge_prefix.setFixedHeight(20)
+        
+        merge_status_layout.addWidget(self.merge_progress_bar, stretch=1)
+        merge_status_layout.addWidget(merge_prefix)
+        merge_status_layout.addWidget(self.merge_status_lbl)
+        layout.addLayout(merge_status_layout)
 
-        # ── 4. Progress Bar ────────────────────────────────────────
-        self.merge_progress = QProgressBar()
-        self.merge_progress.setRange(0, 100)
-        self.merge_progress.setValue(0)
-        self.merge_progress.setVisible(False)
-        layout.addWidget(self.merge_progress)
-
-        # ── 5. Live log ────────────────────────────────────────────
+        # ── 4. Live log ────────────────────────────────────────────
         log_group = QGroupBox("MERGE CONSOLE")
         log_layout = QVBoxLayout()
         self.merge_log_text = QTextEdit()
@@ -1235,7 +1412,7 @@ class MainWindow(QMainWindow):
         if COLLECT_TOOL_DIR.exists():
             os.startfile(str(COLLECT_TOOL_DIR))
         else:
-            QMessageBox.warning(self, "Lỗi", "Thư mục công cụ không tồn tại.")
+            self.statusBar().showMessage("⚠️ Lỗi: Thư mục công cụ không tồn tại.", 5000)
 
     def _on_refresh_tools_clicked(self):
         """Manual check and refresh for tool list"""
@@ -1253,7 +1430,7 @@ class MainWindow(QMainWindow):
         self.github_worker = GitHubSyncWorker()
         self.github_worker.progress.connect(lambda p, m: self.statusBar().showMessage(f"{m} ({p}%)"))
         self.github_worker.finished.connect(self._on_github_sync_finished)
-        self.github_worker.error.connect(lambda e: QMessageBox.warning(self, "Lỗi đồng bộ", e))
+        self.github_worker.error.connect(lambda e: self.statusBar().showMessage(f"❌ Lỗi: {e}", 5000))
         self.github_worker.start()
 
     def _on_github_sync_finished(self, success: bool, message: str):
@@ -1317,20 +1494,14 @@ class MainWindow(QMainWindow):
             item.setText(f"{i + 1}. {_P(path).name}")
 
     def _merge_sort_by_db_list(self):
-        """Sắp xếp lại queue file theo thứ tự danh sách DB người dùng nhập.
-        
-        Quy tắc: db_name = phần trước dấu '_' đầu tiên trong tên file.
-        Ví dụ: DCFNGTB_appendix.docx -> db_name = DCFNGTB
-        """
+        """Sắp xếp lại queue file theo thứ tự danh sách DB người dùng nhập."""
         raw_text = self.db_order_input.toPlainText().strip()
         if not raw_text:
-            QMessageBox.warning(self, "Thiếu danh sách",
-                                "Vui lòng nhập danh sách tên DB vào ô bên trên trước khi sắp xếp.")
+            self.statusBar().showMessage("⚠️ Vui lòng nhập danh sách tên DB trước khi sắp xếp.", 3000)
             return
 
         if self.merge_file_list.count() == 0:
-            QMessageBox.warning(self, "Chưa có file",
-                                "Vui lòng thêm file vào danh sách trước khi sắp xếp.")
+            self.statusBar().showMessage("⚠️ Vui lòng thêm file vào danh sách trước khi sắp xếp.", 3000)
             return
 
         # Đọc danh sách DB theo thứ tự (bỏ dòng trống, strip whitespace)
@@ -1375,13 +1546,10 @@ class MainWindow(QMainWindow):
             self.merge_file_list.addItem(item)
         self._merge_refresh_numbers()
 
-        # Thông báo kết quả
-        msg_parts = [f"✅ Đã sắp xếp {len(sorted_paths)} file theo danh sách DB."]
-        if not_found_dbs:
-            msg_parts.append(f"\n⚠️ Không tìm thấy file cho: {', '.join(not_found_dbs)}")
-        if unmatched:
-            msg_parts.append(f"\n📌 Đặt xuống cuối (không khớp DB): {', '.join(unmatched)}")
-        QMessageBox.information(self, "Sắp xếp hoàn tất", "\n".join(msg_parts))
+        # Sắp xếp hoàn tất -> cập nhật status bar
+        msg = f"✅ Đã sắp xếp {len(sorted_paths)} file."
+        if not_found_dbs: msg += f" (Thiếu: {len(not_found_dbs)})"
+        self.statusBar().showMessage(msg, 5000)
 
     def _browse_merge_output(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -1391,19 +1559,20 @@ class MainWindow(QMainWindow):
         if path:
             if not path.lower().endswith('.docx'):
                 path += '.docx'
-            self.merge_output_path.setText(path)
+            self.merge_output_path.setText(Path(path).as_posix())
 
     def _on_merge_clicked(self):
         count = self.merge_file_list.count()
         if count < 2:
-            QMessageBox.warning(self, "Not Enough Files",
-                                "Please add at least 2 .docx files to merge.")
+            self.merge_status_lbl.setText("NOT ENOUGH FILES")
+            self.merge_status_lbl.setObjectName("status_failed")
+            self.merge_status_lbl.setStyle(self.merge_status_lbl.style())
             return
 
         output = self.merge_output_path.text().strip()
         if not output:
             OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-            output = str(OUTPUT_DIR / "merged_appendix.docx")
+            output = (OUTPUT_DIR / "merged_appendix.docx").as_posix()
             self.merge_output_path.setText(output)
             self._log(f"[INFO] Automatically selected merge output: {output}")
 
@@ -1414,9 +1583,13 @@ class MainWindow(QMainWindow):
 
         self.merge_btn.setEnabled(False)
         self.merge_log_text.clear()
-        self.merge_progress.setValue(0)
-        self.merge_progress.setVisible(True)
+        self.merge_progress_bar.setValue(0)
+        self.merge_progress_bar.setRange(0, 100)
+        self.merge_progress_bar.setVisible(True)
         self.merge_log_text.append(f"[SYSTEM] Starting merge of {count} documents...")
+        self.merge_status_lbl.setText("RUNNING") # Clear previous
+        self.merge_status_lbl.setObjectName("status_ready")
+        self.merge_status_lbl.setStyle(self.merge_status_lbl.style())
 
         from ..utils.merge_worker import MergeWorker
         self.merge_thread = QThread()
@@ -1434,39 +1607,41 @@ class MainWindow(QMainWindow):
 
     def _on_merge_progress(self, percent: int, message: str):
         """Update progress bar and append the log line."""
-        self.merge_progress.setValue(percent)
+        self.merge_progress_bar.setValue(percent)
         self.merge_log_text.append(f"[{percent:3d}%] {message}")
 
     def _on_merge_finished(self, success: bool, message: str):
         self.merge_btn.setEnabled(True)
-        self.merge_progress.setValue(100 if success else 0)
-        self.merge_progress.setVisible(False)
+        self.merge_progress_bar.setValue(100 if success else 0)
         self.merge_log_text.append(f"\n{'[SUCCESS]' if success else '[ERROR]'} {message}")
+        
         if success:
-            QMessageBox.information(self, "Merge Complete", message)
+            self.merge_status_lbl.setText("FINISHED")
+            self.merge_status_lbl.setObjectName("status_finished")
         else:
-            QMessageBox.critical(self, "Merge Failed", message)
+            self.merge_status_lbl.setText("FAILED")
+            self.merge_status_lbl.setObjectName("status_failed")
+        
+        self.merge_status_lbl.setStyle(self.merge_status_lbl.style())
     def _browse_exa_db(self):
-        # Allow selecting .tar.bz2 files or folders via a more flexible dialog
         file_path, _ = QFileDialog.getOpenFileName(self, "Select DB Log Source", "", "Archives (*.tar.bz2);;All Files (*)")
         if file_path:
-            self.exa_db_input_dir.setText(file_path)
+            self.exa_db_input_dir.setText(Path(file_path).as_posix())
         else:
-            # Fallback to directory selection if they didn't pick a file
             folder = QFileDialog.getExistingDirectory(self, "Select DB Log Folder")
-            if folder: self.exa_db_input_dir.setText(folder)
+            if folder: self.exa_db_input_dir.setText(Path(folder).as_posix())
 
     def _browse_exa_cell(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select Cell Log Source", "", "Archives (*.tar.bz2);;All Files (*)")
         if path:
-            self.exa_cell_input_dir.setText(path)
+            self.exa_cell_input_dir.setText(Path(path).as_posix())
         else:
             folder = QFileDialog.getExistingDirectory(self, "Select Cell Log Folder")
-            if folder: self.exa_cell_input_dir.setText(folder)
+            if folder: self.exa_cell_input_dir.setText(Path(folder).as_posix())
 
     def _browse_exa_out(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")
-        if folder: self.exa_output_dir.setText(folder)
+        if folder: self.exa_output_dir.setText(Path(folder).as_posix())
 
     def _on_generate_exawatcher_clicked(self, push=False):
         db_in = self.exa_db_input_dir.text().strip()
@@ -1474,25 +1649,35 @@ class MainWindow(QMainWindow):
         out_dir = self.exa_output_dir.text().strip()
         
         if not db_in or not cell_in:
-            QMessageBox.warning(self, "Missing fields", "Please select DB and Cell log directories.")
+            self.exa_status_lbl.setText("MISSING FIELDS")
+            self.exa_status_lbl.setObjectName("status_failed")
+            self.exa_status_lbl.setStyle(self.exa_status_lbl.style())
             return
 
         # Default output path if empty
         if not out_dir:
             from ..config import BASE_DIR
-            out_dir = str(BASE_DIR / "exawatcher_files")
+            out_dir = (BASE_DIR / "exawatcher_files").as_posix()
             self.exa_output_dir.setText(out_dir)
             self.exa_log_text.append(f"[INFO] Automatically selected ExaWatcher output folder: {out_dir}")
 
         if push and not self.exa_push_folders:
-            QMessageBox.warning(self, "No Targets", "Please add at least one target folder to push results.")
+            self.exa_status_lbl.setText("NO TARGETS")
+            self.exa_status_lbl.setObjectName("status_failed")
+            self.exa_status_lbl.setStyle(self.exa_status_lbl.style())
             return
 
         self.gen_exa_btn.setEnabled(False)
         self.gen_push_exa_btn.setEnabled(False)
         self.stop_exa_btn.setEnabled(True)
+        self.exa_progress.setRange(0, 100)
+        self.exa_progress.setValue(0)
+        self.exa_progress.setVisible(True)
         self.exa_log_text.clear()
         self.exa_log_text.append("[SYSTEM] Khởi chạy bộ xử lý ExaWatcher...")
+        self.exa_status_lbl.setText("RUNNING") # Clear previous
+        self.exa_status_lbl.setObjectName("status_ready")
+        self.exa_status_lbl.setStyle(self.exa_status_lbl.style())
 
         push_targets = self.exa_push_folders if push else []
         push_mode = "timestamp" if self.exa_push_mode_timestamp.isChecked() else "overwrite"
@@ -1508,6 +1693,7 @@ class MainWindow(QMainWindow):
 
         self.exa_thread.started.connect(self.exa_worker.run)
         self.exa_worker.progress.connect(self._on_exawatcher_log)
+        self.exa_worker.progress_val.connect(self.exa_progress.setValue)
         self.exa_worker.finished.connect(self._on_exawatcher_finished)
         self.exa_worker.finished.connect(self.exa_thread.quit)
         
@@ -1523,10 +1709,17 @@ class MainWindow(QMainWindow):
         self.gen_exa_btn.setEnabled(True)
         self.gen_push_exa_btn.setEnabled(True)
         self.stop_exa_btn.setEnabled(False)
+        self.exa_progress.setRange(0, 100)
+        self.exa_progress.setValue(100 if success else 0)
+        
         if success:
-            QMessageBox.information(self, "Thành công", "Tiến trình ExaWatcher hoàn tất!")
+            self.exa_status_lbl.setText("FINISHED")
+            self.exa_status_lbl.setObjectName("status_finished")
         else:
-            QMessageBox.warning(self, "Lỗi", "Tiến trình ExaWatcher gặp lỗi hoặc đã bị dừng.")
+            self.exa_status_lbl.setText("FAILED")
+            self.exa_status_lbl.setObjectName("status_failed")
+            
+        self.exa_status_lbl.setStyle(self.exa_status_lbl.style())
 
     def _on_stop_exawatcher_clicked(self):
         if hasattr(self, 'exa_worker') and self.exa_worker:
