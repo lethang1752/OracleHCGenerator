@@ -32,6 +32,7 @@ class DatabaseInfoParser:
         'DBA_ROLE': '+DBA_ROLE',
         'OBJECT_IN_SYSTEM': '+OBJECT_IN_SYSTEM/SYSAUX',
         'CHECK_PATCHES': '+CHECK_PATCHES',
+        'REPORT_DETAILS': '+REPORT DETAILS',
     }
     
     def __init__(self, log_dir: str):

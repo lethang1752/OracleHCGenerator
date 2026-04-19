@@ -15,17 +15,23 @@ if getattr(sys, 'frozen', False):
     # Use EXE_DIR for output and user-facing files
     BASE_DIR = EXE_DIR
     OUTPUT_DIR = BASE_DIR / "output"
+    APPENDIX_OUTPUT_DIR = OUTPUT_DIR / "appendix"
+    REPORT_OUTPUT_DIR = OUTPUT_DIR / "report"
     COLLECT_TOOL_DIR = BASE_DIR / "HC_collect_tool"
     TEMPLATE_DIR = BUNDLE_DIR / "template_docx"
 else:
     # Running as a regular script
     BASE_DIR = Path(__file__).resolve().parent
     OUTPUT_DIR = BASE_DIR.parent / "output"
+    APPENDIX_OUTPUT_DIR = OUTPUT_DIR / "appendix"
+    REPORT_OUTPUT_DIR = OUTPUT_DIR / "report"
     COLLECT_TOOL_DIR = BASE_DIR.parent / "HC_collect_tool"
     TEMPLATE_DIR = BASE_DIR.parent / "template_docx"
 
 # Logs and DB in the same directory as EXE for portability
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(APPENDIX_OUTPUT_DIR, exist_ok=True)
+os.makedirs(REPORT_OUTPUT_DIR, exist_ok=True)
 os.makedirs(COLLECT_TOOL_DIR, exist_ok=True)
 
 # Database

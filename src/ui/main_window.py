@@ -24,12 +24,13 @@ from ..parsers import AlertLogParser, AWRParser, DatabaseInfoParser
 from ..generators.comprehensive_report_generator import ComprehensiveHealthcareReportGenerator
 from ..config import (
     APP_NAME, APP_VERSION, WINDOW_WIDTH, WINDOW_HEIGHT,
-    NUM_DAYS_ALERT, OUTPUT_DIR, COLLECT_TOOL_DIR,
-    GITHUB_TOOLS_API_URL, AUTO_SYNC_TOOLS
+    NUM_DAYS_ALERT, OUTPUT_DIR, APPENDIX_OUTPUT_DIR, REPORT_OUTPUT_DIR,
+    COLLECT_TOOL_DIR, GITHUB_TOOLS_API_URL, AUTO_SYNC_TOOLS
 )
 from ..utils import setup_logger, sanitize_filename
 from ..utils.github_sync_worker import GitHubSyncWorker
 from ..utils.generator_worker import GeneratorWorker
+from ..utils.report_worker import ReportWorker
 from ..utils.exawatcher_runner import ExaWatcherGraphGenerator
 
 logger = setup_logger(__name__)
@@ -171,6 +172,7 @@ class MainWindow(QMainWindow):
         self.parse_worker = None
         self.github_worker = None
         self.has_auto_synced = False
+        self.gen_mode = 'appendix' # 'appendix' or 'report'
         
         # Explicitly initialize Status Bar to prevent UI jumping
         self.setStatusBar(QStatusBar(self))
@@ -410,7 +412,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(folder_group)
         
         # 2. Settings Group - Refined Layout
-        settings_group = QGroupBox("2. APPENDIX SETTINGS")
+        settings_group = QGroupBox("2. DOCUMENT SETTINGS")
         settings_layout = QGridLayout()
         settings_layout.setSpacing(10)
         
@@ -427,23 +429,30 @@ class MainWindow(QMainWindow):
         # Column 1: Document Font
         settings_layout.addWidget(QLabel("Document Font:"), 0, 1)
         self.font_combo = QComboBox()
-        self.font_combo.addItems(["Times New Roman", "Calibri"])
+        self.font_combo.addItems(["Times NR", "Calibri"])
         self.font_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         settings_layout.addWidget(self.font_combo, 1, 1)
 
-        # Column 2: Database Role (New)
+        # Column 2: Database Role
         settings_layout.addWidget(QLabel("Database Role:"), 0, 2)
         self.role_combo = QComboBox()
         self.role_combo.addItems(["Primary", "Standby"])
         self.role_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         settings_layout.addWidget(self.role_combo, 1, 2)
         
-        # Column 3: Custom Filename (Giving more width)
-        settings_layout.addWidget(QLabel("Custom Filename (Optional):"), 0, 3)
+        # Column 3: Report Language (New)
+        settings_layout.addWidget(QLabel("Report Language:"), 0, 3)
+        self.lang_combo = QComboBox()
+        self.lang_combo.addItems(["Vietnamese", "English"])
+        self.lang_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        settings_layout.addWidget(self.lang_combo, 1, 3)
+        
+        # Column 4: Custom Filename (Giving more width)
+        settings_layout.addWidget(QLabel("Custom Filename (Optional):"), 0, 4)
         
         file_row = QHBoxLayout()
         self.filename_input = QLineEdit()
-        self.filename_input.setPlaceholderText("Auto-generated if empty (in folder output)")
+        self.filename_input.setPlaceholderText("Auto-generated if empty")
         
         self.clear_filename_btn = QPushButton("✖")
         self.clear_filename_btn.setObjectName("clear_btn")
@@ -451,23 +460,32 @@ class MainWindow(QMainWindow):
         
         file_row.addWidget(self.filename_input)
         file_row.addWidget(self.clear_filename_btn)
-        settings_layout.addLayout(file_row, 1, 3)
+        settings_layout.addLayout(file_row, 1, 4)
         
-        # Adjusting column stretches to make Column 0, 1, 2 narrower
-        settings_layout.setColumnStretch(0, 1)
-        settings_layout.setColumnStretch(1, 1)
-        settings_layout.setColumnStretch(2, 1)
-        settings_layout.setColumnStretch(3, 2) # Filename takes more width relatively
+        # Adjusting column stretches
+        settings_layout.setColumnStretch(0, 1) # Alert Logs (narrow)
+        settings_layout.setColumnStretch(1, 3) # Font
+        settings_layout.setColumnStretch(2, 3) # Role
+        settings_layout.setColumnStretch(3, 3) # Language
+        settings_layout.setColumnStretch(4, 5) # Filename
         
         settings_group.setLayout(settings_layout)
         layout.addWidget(settings_group)
         
         # 3. Actions
-        action_layout = QVBoxLayout()
-        self.generate_btn = QPushButton("🚀 GENERATE APPENDIX (ALL NODES)")
+        action_layout = QHBoxLayout()
+        action_layout.setSpacing(15)
+        
+        self.generate_btn = QPushButton("🚀 GENERATE APPENDIX")
         self.generate_btn.setObjectName("main_action_btn")
         self.generate_btn.clicked.connect(self._on_generate_clicked)
-        action_layout.addWidget(self.generate_btn)
+        
+        self.generate_report_btn = QPushButton("📝 GENERATE REPORT")
+        self.generate_report_btn.setObjectName("main_action_btn")
+        self.generate_report_btn.clicked.connect(self._on_generate_report_clicked)
+        
+        action_layout.addWidget(self.generate_btn, stretch=1)
+        action_layout.addWidget(self.generate_report_btn, stretch=1)
         layout.addLayout(action_layout)
         
         # --- FIXED STATUS AREA ---
@@ -1103,7 +1121,10 @@ class MainWindow(QMainWindow):
     def _on_parse_finished(self, data: dict):
         self.parsed_data = data
         self._log("[SUCCESS] All data parsed successfully!")
-        self._run_generation_and_finalize()
+        if self.gen_mode == 'report':
+            self._run_report_generation_and_finalize()
+        else:
+            self._run_generation_and_finalize()
     
     def _on_parse_error(self, error_msg: str):
         self._log(f"[ERROR] {error_msg}")
@@ -1115,6 +1136,30 @@ class MainWindow(QMainWindow):
         self.generate_btn.setEnabled(True)
     
 
+        self.appendix_progress.setRange(0, 100)
+        self.appendix_progress.setValue(0)
+        self._log(f"Starting parsing for {len(self.log_folders)} nodes...")
+        self._on_parse_clicked()
+
+    def _on_generate_report_clicked(self):
+        if not self.log_folders:
+            self.appendix_status_lbl.setText("MISSING INPUT")
+            self.appendix_status_lbl.setObjectName("status_failed")
+            self.appendix_status_lbl.setStyle(self.appendix_status_lbl.style())
+            return
+            
+        self.gen_mode = 'report'
+        self.appendix_status_lbl.setText("RUNNING")
+        self.appendix_status_lbl.setObjectName("status_ready")
+        self.appendix_status_lbl.setStyle(self.appendix_status_lbl.style())
+        self.generate_btn.setEnabled(False)
+        self.generate_report_btn.setEnabled(False)
+        self.appendix_progress.setVisible(True)
+        self.appendix_progress.setRange(0, 100)
+        self.appendix_progress.setValue(0)
+        self._log("Starting Final Report workflow (Node 1)...")
+        self._on_parse_clicked()
+
     def _on_generate_clicked(self):
         if not self.log_folders:
             self.appendix_status_lbl.setText("MISSING INPUT")
@@ -1122,15 +1167,42 @@ class MainWindow(QMainWindow):
             self.appendix_status_lbl.setStyle(self.appendix_status_lbl.style())
             return
 
-        self.appendix_status_lbl.setText("RUNNING") # Clear previous
+        self.gen_mode = 'appendix'
+        self.appendix_status_lbl.setText("RUNNING")
         self.appendix_status_lbl.setObjectName("status_ready")
         self.appendix_status_lbl.setStyle(self.appendix_status_lbl.style())
         self.generate_btn.setEnabled(False)
+        self.generate_report_btn.setEnabled(False)
         self.appendix_progress.setVisible(True)
         self.appendix_progress.setRange(0, 100)
         self.appendix_progress.setValue(0)
         self._log(f"Starting workflow for {len(self.log_folders)} nodes...")
         self._on_parse_clicked()
+
+    def _get_calculated_db_name(self) -> str:
+        """Helper to calculate the consistent database name across all report types"""
+        if not self.parsed_data: return "UNKNOWN"
+        
+        nodes = self.parsed_data.get('nodes', [])
+        db_role = self.role_combo.currentText().lower()
+        
+        base_db_name = "Unknown"
+        if nodes:
+            inst = str(nodes[0].get('instance_name', '')).strip()
+            if not inst or inst == 'NODE1':
+                # Fallback to DB Name from AWR/Config
+                base_db_name = self.parsed_data.get('db_name', 'Unknown')
+            else:
+                # Use instance name but strip trailing node digits (e.g. MISDB1 -> MISDB)
+                base_db_name = inst
+                while base_db_name and base_db_name[-1].isdigit():
+                    base_db_name = base_db_name[:-1]
+        
+        base_db_name = base_db_name.upper()
+        if db_role == 'standby':
+            base_db_name = f"{base_db_name}-STB"
+            
+        return base_db_name
 
     def _run_generation_and_finalize(self):
         self._log("Initializing dynamic multi-node report generation...")
@@ -1138,26 +1210,13 @@ class MainWindow(QMainWindow):
             font_choice = self.font_combo.currentText()
             db_role = self.role_combo.currentText().lower()
             
-            # Calculate Base DB Name
-            nodes = self.parsed_data.get('nodes', [])
-            base_db_name = "Unknown"
-            if nodes:
-                inst = str(nodes[0].get('instance_name', '')).strip()
-                if not inst or inst == 'NODE1':
-                    base_db_name = self.parsed_data.get('db_name', 'Unknown')
-                else:
-                    base_db_name = inst
-                    while base_db_name and base_db_name[-1].isdigit():
-                        base_db_name = base_db_name[:-1]
-            base_db_name = base_db_name.upper()
-            if db_role == 'standby':
-                base_db_name = f"{base_db_name}-STB"
+            base_db_name = self._get_calculated_db_name()
             
             default_filename = f"{base_db_name}_appendix"
             filename = self.filename_input.text() or default_filename
             filename = sanitize_filename(filename)
             
-            docx_path = str(OUTPUT_DIR / f"{filename}.docx")
+            docx_path = str(APPENDIX_OUTPUT_DIR / f"{filename}.docx")
             font_token = 'times' if 'times' in font_choice.lower() else 'calibri'
             
             # Create and start Generator Worker in background
@@ -1183,6 +1242,7 @@ class MainWindow(QMainWindow):
     def _on_generation_finished(self, success: bool, docx_path: str, filename: str):
         """Callback when background generation completes"""
         self.generate_btn.setEnabled(True)
+        self.generate_report_btn.setEnabled(True)
         self.appendix_progress.setValue(100 if success else 0)
         self.statusBar().showMessage("Workflow Finished")
         
@@ -1197,6 +1257,53 @@ class MainWindow(QMainWindow):
             self.appendix_status_lbl.setText("FAILED")
             self.appendix_status_lbl.setObjectName("status_failed")
         
+        self.appendix_status_lbl.setStyle(self.appendix_status_lbl.style())
+
+    def _run_report_generation_and_finalize(self):
+        self._log("Initializing summary report generation...")
+        try:
+            font_choice = self.font_combo.currentText()
+            lang = 'vi' if "Vietnamese" in self.lang_combo.currentText() else 'en'
+            
+            base_db_name = self._get_calculated_db_name()
+            
+            default_filename = f"{base_db_name}_report"
+            filename = self.filename_input.text() or default_filename
+            filename = sanitize_filename(filename)
+            
+            docx_path = str(REPORT_OUTPUT_DIR / f"{filename}.docx")
+            font_token = 'times' if 'times' in font_choice.lower() else 'calibri'
+            
+            self.report_thread = QThread()
+            self.report_worker = ReportWorker(self.parsed_data, docx_path, font_token, filename, lang, db_name=base_db_name)
+            self.report_worker.moveToThread(self.report_thread)
+            
+            self.report_thread.started.connect(self.report_worker.run)
+            self.report_worker.progress.connect(self._on_parse_progress)
+            self.report_worker.finished.connect(self._on_report_finished)
+            self.report_worker.finished.connect(self.report_thread.quit)
+            self.report_worker.finished.connect(self.report_worker.deleteLater)
+            self.report_thread.finished.connect(self.report_thread.deleteLater)
+            
+            self.report_thread.start()
+        except Exception as e:
+            self._log(f"[ERROR] Fault initiating report: {str(e)}")
+            self.generate_btn.setEnabled(True)
+            self.generate_report_btn.setEnabled(True)
+
+    def _on_report_finished(self, success: bool, docx_path: str, filename: str):
+        self.generate_btn.setEnabled(True)
+        self.generate_report_btn.setEnabled(True)
+        self.appendix_progress.setValue(100 if success else 0)
+        self.statusBar().showMessage("Final Report Finished")
+        if success:
+            self._log(f"[SUCCESS] Final Report saved: {docx_path}")
+            self.appendix_status_lbl.setText("FINISHED")
+            self.appendix_status_lbl.setObjectName("status_finished")
+        else:
+            self._log(f"[ERROR] Final Report failed: {docx_path}")
+            self.appendix_status_lbl.setText("FAILED")
+            self.appendix_status_lbl.setObjectName("status_failed")
         self.appendix_status_lbl.setStyle(self.appendix_status_lbl.style())
     
     def _log(self, message: str):
