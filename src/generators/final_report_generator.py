@@ -15,6 +15,7 @@ from docx.oxml.ns import nsdecls, qn
 from docx.oxml import parse_xml, OxmlElement
 
 from ..config import TEMPLATE_DIR
+from ..utils.rules_manager import RulesManager
 
 logger = logging.getLogger(__name__)
 
@@ -81,19 +82,20 @@ class FinalReportGenerator:
     def generate(self, parsed_data: Dict[str, Any], db_name: str = None) -> bool:
         """Main entry point to build the report"""
         try:
-            # We only use data from Node 1 (index 0)
+            # Use all nodes for aggregated evaluation
             nodes = parsed_data.get('nodes', [])
             if not nodes:
                 logger.error("No node data found for report generation")
                 return False
             
-            node1 = nodes[0]
+            node1 = nodes[0] # Primary node for general info
+            
             if not db_name:
                 db_name = str(parsed_data.get('db_name', 'UNKNOWN')).upper()
             else:
                 db_name = db_name.upper()
             
-            # --- Remove potential blank line at start (common in templates) ---
+            # --- Remove potential blank line at start ---
             if self.doc.paragraphs and not self.doc.paragraphs[0].text.strip():
                 p = self.doc.paragraphs[0]._element
                 p.getparent().remove(p)
@@ -101,17 +103,21 @@ class FinalReportGenerator:
             # --- 3.1 DB NAME ---
             self.doc.add_heading(db_name, level=2)
             
-            # --- 3.1.1 General Information ---
+            # --- 3.1.1 General Information (Node 1 only) ---
             self._add_general_info_section(node1)
             
+            # --- Load and Evaluate Rules (All Nodes Aggregated) ---
+            rules = RulesManager.load_rules()
+            findings = self._evaluate_aggregated_rules(nodes, rules)
+            
             # --- 3.1.2 Evaluation / Summary ---
-            self._add_evaluation_section()
+            self._add_evaluation_section(findings)
             
             # --- Page Break ---
             self.doc.add_page_break()
             
             # --- 3.1.3 Recommendation ---
-            self._add_recommendation_section()
+            self._add_recommendation_section(findings)
             
             # --- 3.1.4 Appendix Reference ---
             self._add_appendix_ref_section(db_name)
@@ -172,27 +178,236 @@ class FinalReportGenerator:
                 for p in cell.paragraphs:
                     p.alignment = align
 
-    def _add_evaluation_section(self):
-        title = "Đánh giá" if self.language == 'vi' else "SUMMARY"
-        self.doc.add_heading(title, level=3)
+    def _evaluate_aggregated_rules(self, nodes: List[Dict[str, Any]], rules: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Evaluate database data across ALL nodes and aggregate findings"""
+        findings = []
         
-        # Table 4 cols, 11 rows. Headers: "STT", "Kiểm tra", "Đánh giá", "Đánh giá (Báo cáo trước đây)"
-        headers = ["STT", "Kiểm tra", "Đánh giá", "Đánh giá (Báo cáo trước đây)"] if self.language == 'vi' else \
-                  ["NO", "CRITERIA", "EVALUATION SCORE", "EVALUATION SCORE (PREVIOUS REPORT)"]
+        def sort_key(s):
+            parts = s.split('.')
+            return [int(p) if p.isdigit() else p for p in parts]
         
-        table = self.doc.add_table(rows=11, cols=4)
-        table.style = 'Table Grid'
-        table.allow_autofit = False
+        sorted_rule_ids = sorted(rules.keys(), key=sort_key)
         
-        for i, h in enumerate(headers):
-            table.rows[0].cells[i].text = h
-        self._format_header_row(table.rows[0])
-        
-        # Widths: 1.4, 10.0, 2.5, 2.5 cm
-        self._set_column_widths(table, [Cm(1.4), Cm(10.0), Cm(2.5), Cm(2.5)])
-        
+        for rid in sorted_rule_ids:
+            rule = rules[rid]
+            category = rule.get('category')
+            target = rule.get('target')
+            col_name = rule.get('column', '').upper()
+            condition = rule.get('condition')
+            threshold = rule.get('threshold')
+            
+            all_node_matches = []
+            unique_names = set() # To prevent duplicates across rows/nodes
+            
+            for node_idx, node_data in enumerate(nodes):
+                # --- Logic by Category ---
+                if category == 'DB_INFO':
+                    db_info = node_data.get('database_info', {})
+                    table = db_info.get(target, [])
+                    if not table or len(table) < 2: continue
+                    headers = table[0]
+                    
+                    if condition == 'oracle_version_patch_age':
+                        # Special Rule: Standardized Oracle Version & Patch Age Check
+                        # Find column index
+                        content_idx = next((i for i, h in enumerate(headers) if col_name in h.upper()), None)
+                        if content_idx is None: continue
+                        
+                        full_text = ""
+                        for row in table[1:]:
+                            if len(row) > content_idx:
+                                full_text += str(row[content_idx]) + "\n"
+                        
+                        import re
+                        from datetime import datetime
+                        
+                        # 1. Detect Version
+                        version_match = re.search(r'Database Release Update\s*:\s*(\d+)\.', full_text)
+                        if version_match:
+                            major_version = int(version_match.group(1))
+                            if major_version < 19:
+                                finding_name = f"Oracle Version {major_version} (Legacy)"
+                                if finding_name not in unique_names:
+                                    all_node_matches.append({"name": finding_name, "value": "Legacy", "branch": "version_old"})
+                                    unique_names.add(finding_name)
+                            else:
+                                # Check Patch Age for 19c+
+                                ru_patch_id_match = re.search(r'Database Release Update\s*:\s*.*\((\d+)\)', full_text)
+                                if ru_patch_id_match:
+                                    ru_patch_id = ru_patch_id_match.group(1)
+                                    date_pattern = rf'Patch\s+{ru_patch_id}.*?applied on.*?(?:[a-zA-Z]{{3,}}\s+)?([a-zA-Z]{{3}})\s+(\d{{1,2}}).*?(\d{{4}})'
+                                    date_match = re.search(date_pattern, full_text, re.DOTALL | re.IGNORECASE)
+                                    if date_match:
+                                        mon_str, day_str, year_str = date_match.groups()
+                                        mon_key = mon_str.capitalize()
+                                        months_map = {'Jan':1, 'Feb':2, 'Mar':3, 'Apr':4, 'May':5, 'Jun':6, 
+                                                     'Jul':7, 'Aug':8, 'Sep':9, 'Oct':10, 'Nov':11, 'Dec':12}
+                                        
+                                        try:
+                                            patch_date = datetime(int(year_str), months_map.get(mon_key, 1), int(day_str))
+                                            current_date = datetime(2026, 4, 19)
+                                            diff_months = (current_date.year - patch_date.year) * 12 + (current_date.month - patch_date.month)
+                                            
+                                            if diff_months >= 24: branch = "age_2y"
+                                            elif diff_months >= 12: branch = "age_1y"
+                                            elif diff_months >= 6: branch = "age_6m"
+                                            else: branch = None
+                                            
+                                            if branch:
+                                                finding_name = f"Oracle 19c Patch Age ({diff_months} months)"
+                                                if finding_name not in unique_names:
+                                                    all_node_matches.append({"name": finding_name, "value": f"Applied {mon_key} {year_str}", "branch": branch})
+                                                    unique_names.add(finding_name)
+                                        except: pass
+                        continue # End DB_INFO for this rule
+
+                    # Fuzzy column matching: Remove spaces and symbols to find partial matches
+                    def normalize_header(h): return "".join(c for c in str(h).upper() if c.isalnum())
+                    norm_col_name = normalize_header(col_name)
+                    
+                    col_idx = None
+                    for i, h in enumerate(headers):
+                        if norm_col_name in normalize_header(h):
+                            col_idx = i
+                            break
+                    
+                    if col_idx is None: continue
+                    
+                    for row in table[1:]:
+                        if len(row) <= col_idx: continue
+                        # Clean numeric strings (remove %, GB, MB, commas)
+                        raw_val = str(row[col_idx]).strip()
+                        val_str = "".join(c for c in raw_val if c.isdigit() or c == '.')
+                        
+                        try:
+                            val = float(val_str) if '.' in val_str else int(val_str)
+                        except:
+                            val = raw_val # Fallback to string
+                            
+                        is_violation = False
+                        if condition == ">": 
+                            is_violation = (isinstance(val, (int, float)) and isinstance(threshold, (int, float)) and val > threshold)
+                        elif condition == "<": 
+                            is_violation = (isinstance(val, (int, float)) and isinstance(threshold, (int, float)) and val < threshold)
+                        elif condition == "==": 
+                            is_violation = (str(val) == str(threshold))
+                        elif condition == "!=": 
+                            is_violation = (str(val) != str(threshold))
+                        elif condition == "contains": 
+                            is_violation = (str(threshold).lower() in str(val).lower())
+                        elif condition == "count":
+                            # For count, we check the total items in the table
+                            is_violation = (len(table)-1 > (int(threshold) if threshold != "" else 0))
+                            if is_violation and "Aggregated" not in unique_names:
+                                all_node_matches.append({"name": f"{len(table)-1} items", "value": len(table)-1})
+                                unique_names.add("Aggregated")
+                            break
+
+                        if is_violation:
+                            item_name = row[0]
+                            if item_name not in unique_names:
+                                all_node_matches.append({"name": item_name, "value": val})
+                                unique_names.add(item_name)
+                
+                elif category == 'LOG':
+                    # Fix: The parser data structure uses 'alerts' key, and internal key is 'error_code'
+                    alert_data = node_data.get('alerts', {})
+                    errors_list = alert_data.get('alerts', [])
+                    
+                    import re
+                    ora_pattern = re.compile(r'(ORA-\d+)')
+                    
+                    if condition == "contains_any":
+                        for err in errors_list:
+                            raw_code = str(err.get('error_code', ''))
+                            # Failsafe: Clean the code again in the generator
+                            match = ora_pattern.search(raw_code)
+                            code = match.group(1) if match else raw_code
+                            
+                            # Check if code matches any of the threshold strings
+                            t_list = threshold if isinstance(threshold, list) else [threshold]
+                            if any(t.lower() in code.lower() for t in t_list):
+                                if code not in unique_names:
+                                    all_node_matches.append({"name": code, "value": "Found"})
+                                    unique_names.add(code)
+
+
+            # --- Create Aggregated Finding ---
+            if all_node_matches:
+                # Limit to top 10 unique items
+                display_matches = all_node_matches[:10]
+                item_names = ", ".join([str(m['name']) for m in display_matches])
+                if len(all_node_matches) > 10: 
+                    item_names += f" and {len(all_node_matches)-10} more"
+                
+                best_match = all_node_matches[0]
+                sample_val = best_match['value']
+                
+                # Handle Standardized Branches for oracle_version_patch_age
+                branch = best_match.get('branch')
+                if condition == 'oracle_version_patch_age' and branch:
+                    if branch == "version_old":
+                        rec_vi = "Phiên bản hiện tại đã cũ. Xem xét kế hoạch nâng cấp CSDL lên phiên bản mới hơn như Oracle 19c để được hỗ trợ tốt hơn từ phía hãng Oracle, giảm thiểu tỉ lệ phát sinh lỗi, nâng cao hiệu suất và có thể sử dụng các tính năng mới."
+                        rec_en = "Current database version is no longer supported from Oracle. It is suggested to upgrade to version 19c and apply latest patch for Database to minimize the impact of known bugs or security threats."
+                        sev_vi, sev_en = "Nghiêm trọng", "Critical"
+                        risk_vi = "CSDL không được đảm bảo tính bảo mật ở mức cao nhất. Ngoài ra, có thể gặp bugs ảnh hưởng tới hoạt động của CSDL."
+                        risk_en = "System is running on an outdated version that is no longer in primary support."
+                    elif branch == "age_2y":
+                        rec_vi = "Bản vá của cơ sở dữ liệu đã cũ quá 2 năm. Xem xét nâng cấp lên bản patch mới nhất để giảm thiểu rủi ro bảo mật và tránh phát sinh lỗi."
+                        rec_en = "Patch update is more than 2 years out-of-date. It is suggested to apply latest patch for Database to minimize the impact of known bugs or security threats."
+                        sev_vi, sev_en = "Nghiêm trọng", "Critical"
+                        risk_vi = "CSDL không được đảm bảo tính bảo mật ở mức cao nhất. Ngoài ra, có thể gặp bugs ảnh hưởng tới hoạt động của CSDL."
+                        risk_en = "Database may be unstable."
+                    elif branch == "age_1y":
+                        rec_vi = "Bản vá của cơ sở dữ liệu đã cũ. Xem xét nâng cấp lên bản patch mới nhất để giảm thiểu rủi ro bảo mật và tránh phát sinh lỗi."
+                        rec_en = "Patch update is more than 1 year out-of-date. It is suggested to apply latest patch for Database to minimize the impact of known bugs or security threats."
+                        sev_vi, sev_en = "Cao", "High"
+                        risk_vi = "CSDL không được đảm bảo tính bảo mật ở mức cao nhất. Ngoài ra, có thể gặp bugs ảnh hưởng tới hoạt động của CSDL."
+                        risk_en = "Database may be unstable."
+                    elif branch == "age_6m":
+                        rec_vi = "Bản vá của cơ sở dữ liệu đã cũ. Xem xét nâng cấp lên bản patch mới nhất để giảm thiểu rủi ro bảo mật và tránh phát sinh lỗi."
+                        rec_en = "Patch update is almost 1 year out-of-date. It is suggested to apply latest patch for Database to minimize the impact of known bugs or security threats."
+                        sev_vi, sev_en = "Thấp", "Low"
+                        risk_vi = "CSDL không được đảm bảo tính bảo mật ở mức cao nhất. Ngoài ra, có thể gặp bugs ảnh hưởng tới hoạt động của CSDL."
+                        risk_en = "Database may be unstable."
+                    else:
+                        sev_vi, sev_en = "Thấp", "Low"
+                        rec_vi, rec_en, risk_vi, risk_en = "", "", "", ""
+
+                    finding = {
+                        "id": rid,
+                        "title": rule.get('title'),
+                        "item_name": item_names,
+                        "value": sample_val,
+                        "rec_vi": rec_vi, "rec_en": rec_en,
+                        "risk_vi": risk_vi, "risk_en": risk_en,
+                        "severity_vi": sev_vi, "severity_en": sev_en,
+                        "appendix_ref": rule.get('appendix_ref', f"Phụ lục {rid}")
+                    }
+                else:
+                    # Default handle for other rules
+                    finding = {
+                        "id": rid,
+                        "title": rule.get('title'),
+                        "item_name": item_names,
+                        "value": sample_val,
+                        "rec_vi": rule.get('rec_vi', '').replace("{item_name}", item_names).replace("{value}", str(sample_val)),
+                        "rec_en": rule.get('rec_en', '').replace("{item_name}", item_names).replace("{value}", str(sample_val)),
+                        "risk_vi": rule.get('risk_vi', '').replace("{item_name}", item_names).replace("{value}", str(sample_val)),
+                        "risk_en": rule.get('risk_en', '').replace("{item_name}", item_names).replace("{value}", str(sample_val)),
+                        "severity_vi": rule.get('severity_vi', 'Trung bình'),
+                        "severity_en": rule.get('severity_en', 'Medium'),
+                        "appendix_ref": rule.get('appendix_ref', f"Phụ lục {rid}")
+                    }
+                findings.append(finding)
+                
+        return findings
+
+    def _add_evaluation_section(self, findings: List[Dict[str, Any]]):
         if self.language == 'vi':
-            criteria = [
+            title = "Đánh giá"
+            headers = ["STT", "Kiểm tra", "Đánh giá", "Đánh giá (Báo cáo trước đây)"]
+            items = [
                 "Kiểm tra trạng thái",
                 "Kiểm tra hiệu năng - CPU",
                 "Kiểm tra hiệu năng - Bộ nhớ",
@@ -205,7 +420,9 @@ class FinalReportGenerator:
                 "Total"
             ]
         else:
-            criteria = [
+            title = "SUMMARY"
+            headers = ["NO", "CRITERIA", "EVALUATION SCORE", "EVALUATION SCORE (PREVIOUS REPORT)"]
+            items = [
                 "Status check",
                 "Performance check – CPU",
                 "Performance check – Memory",
@@ -218,40 +435,127 @@ class FinalReportGenerator:
                 "Total"
             ]
             
-        for i in range(1, 11):
-            table.rows[i].cells[0].text = str(i) if i < 10 else "" # Last row first cell empty
-            table.rows[i].cells[1].text = criteria[i-1]
-            
-            # Formatting: Vertical center for all, Column 1 is Centered
-            for j in range(4):
-                align = WD_ALIGN_PARAGRAPH.CENTER if j == 0 else WD_ALIGN_PARAGRAPH.LEFT
-                cell = table.rows[i].cells[j]
-                cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-                for p in cell.paragraphs:
-                    p.alignment = align
-            
-        # Final row formatting: background D9D9D9, bold
-        self._format_table_row_bg(table.rows[10], "D9D9D9", bold=True)
-
-    def _add_recommendation_section(self):
-        title = "Khuyến nghị" if self.language == 'vi' else "Recommendation"
         self.doc.add_heading(title, level=3)
         
-        # Table 5 cols, 2 rows (header + 1 empty). 
-        # Headers: STT, Khuyến nghị, Rủi ro/ảnh hưởng, Mức độ, Tham khảo
-        headers = ["STT", "Khuyến nghị", "Rủi ro/ảnh hưởng", "Mức độ", "Tham khảo"] if self.language == 'vi' else \
-                  ["NO", "RECOMMENDATION", "RISK/EFFECT", "SEVERITY", "REFERENCE"]
-                  
-        table = self.doc.add_table(rows=2, cols=5)
+        # Static table: 11 rows (1 header + 10 data), 4 columns
+        table = self.doc.add_table(rows=11, cols=4)
         table.style = 'Table Grid'
         table.allow_autofit = False
         
+        # Header
         for i, h in enumerate(headers):
             table.rows[0].cells[i].text = h
         self._format_header_row(table.rows[0])
         
-        # Widths: 1.2, 6.55, 4.5, 1.9, 2.25 cm
+        for i, item_text in enumerate(items):
+            row_idx = i + 1
+            cells = table.rows[row_idx].cells
+            
+            # STT (1-9), Empty for Total
+            if i < 9:
+                cells[0].text = str(row_idx)
+            else:
+                cells[0].text = "" # No STT for Total
+                
+            cells[1].text = item_text
+            
+            # Columns 3 & 4 empty
+            cells[2].text = ""
+            cells[3].text = ""
+            
+            # Last row styling (Total)
+            if i == 9:
+                from docx.oxml.ns import nsdecls
+                from docx.oxml import parse_xml
+                
+                for cell in cells:
+                    # Shading D9D9D9
+                    shd = parse_xml(r'<w:shd {} w:fill="D9D9D9"/>'.format(nsdecls('w')))
+                    cell._element.get_or_add_tcPr().append(shd)
+                    
+                    # Bold text
+                    for paragraph in cell.paragraphs:
+                        if not paragraph.runs:
+                            run = paragraph.add_run()
+                        else:
+                            run = paragraph.runs[0]
+                        run.bold = True
+            
+            # Alignment
+            for j, cell in enumerate(cells):
+                cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                # Center STT, Evaluation columns
+                if j != 1:
+                    if cell.paragraphs:
+                        cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # Fixed widths: 1.4, 10.0, 2.5, 2.5 (Total 16.4)
+        self._set_column_widths(table, [Cm(1.4), Cm(10.0), Cm(2.5), Cm(2.5)])
+
+    def _add_recommendation_section(self, findings: List[Dict[str, Any]]):
+        title = "Khuyến nghị và giải pháp" if self.language == 'vi' else "Recommendations"
+        self.doc.add_heading(title, level=3)
+        
+        # Table with 5 columns: STT, Khuyến nghị, Rủi ro, Mức độ, Phụ lục
+        table = self.doc.add_table(rows=len(findings) + 1, cols=5)
+        table.style = 'Table Grid'
+        table.allow_autofit = False
+        
+        # Header
+        if self.language == 'vi':
+            headers = ["STT", "Khuyến nghị", "Rủi ro/ảnh hưởng", "Mức độ", "Tham khảo Phụ lục"]
+        else:
+            headers = ["NO", "Recommendations", "Risk/Effect", "Severity", "Appendix Reference"]
+            
+        for i, h in enumerate(headers):
+            table.rows[0].cells[i].text = h
+        self._format_header_row(table.rows[0])
+        
+        # Fixed widths: 1.2, 6.55, 4.5, 1.9, 2.25 (Total 16.4)
         self._set_column_widths(table, [Cm(1.2), Cm(6.55), Cm(4.5), Cm(1.9), Cm(2.25)])
+        
+        # Data
+        for i, f in enumerate(findings):
+            row = table.rows[i+1].cells
+            row[0].text = str(i + 1)
+            
+            if self.language == 'vi':
+                row[1].text = f.get('rec_vi', '')
+                row[2].text = f.get('risk_vi', '')
+                sev_text = f.get('severity_vi', '')
+            else:
+                row[1].text = f.get('rec_en', '')
+                row[2].text = f.get('risk_en', '')
+                sev_text = f.get('severity_en', '')
+            
+            row[3].text = sev_text
+            
+            # Apply color and bold for Severity
+            if row[3].paragraphs:
+                p = row[3].paragraphs[0]
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                # Determine styling
+                is_severe = sev_text.upper() in ["CRITICAL", "NGHIÊM TRỌNG", "HIGH", "CAO"]
+                is_critical = sev_text.upper() in ["CRITICAL", "NGHIÊM TRỌNG"]
+                
+                if is_severe:
+                    for run in p.runs:
+                        run.font.color.rgb = RGBColor(255, 0, 0) # Red
+                        if is_critical:
+                            run.font.bold = True
+            
+            ref_text = f.get('appendix_ref', '')
+            if self.language != 'vi':
+                ref_text = ref_text.replace("Phụ lục", "Appendix")
+            row[4].text = ref_text
+            
+            # Align first and last 2 cols
+            row[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            row[3].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            row[4].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            
+            for cell in row:
+                cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
     def _add_appendix_ref_section(self, db_name: str):
         title = "Thông tin chi tiết của cơ sở dữ liệu" if self.language == 'vi' else \

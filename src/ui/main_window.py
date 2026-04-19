@@ -7,6 +7,7 @@ from typing import Optional
 import logging
 import shutil
 import os
+import json
 
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
@@ -15,10 +16,10 @@ from PyQt5.QtWidgets import (
     QSpinBox, QGroupBox, QMessageBox, QStatusBar, QDesktopWidget,
     QListWidget, QListWidgetItem, QAbstractItemView, QCheckBox, QGridLayout,
     QRadioButton, QHeaderView, QGraphicsDropShadowEffect, QStackedWidget,
-    QSizePolicy
+    QSizePolicy, QScrollArea, QFormLayout, QFrame, QPlainTextEdit
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QEvent
-from PyQt5.QtGui import QFont, QIcon, QColor
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QEvent, QRect, QSize
+from PyQt5.QtGui import QFont, QIcon, QColor, QFontMetricsF, QTextOption, QPainter, QTextFormat
 
 from ..parsers import AlertLogParser, AWRParser, DatabaseInfoParser
 from ..generators.comprehensive_report_generator import ComprehensiveHealthcareReportGenerator
@@ -32,12 +33,96 @@ from ..utils.github_sync_worker import GitHubSyncWorker
 from ..utils.generator_worker import GeneratorWorker
 from ..utils.report_worker import ReportWorker
 from ..utils.exawatcher_runner import ExaWatcherGraphGenerator
+from ..utils.rules_manager import RulesManager
 
 logger = setup_logger(__name__)
 
 from ..parsers.alert_parser import AlertLogParser
 from ..parsers.awr_parser import AWRParser
 from ..parsers.database_info_parser import DatabaseInfoParser
+
+# ─────────────────────────────────────────────────────────────────
+#  CUSTOM WIDGETS: Code Editor with Line Numbers
+# ─────────────────────────────────────────────────────────────────
+
+class LineNumberArea(QWidget):
+    def __init__(self, editor):
+        super().__init__(editor)
+        self.codeEditor = editor
+
+    def sizeHint(self):
+        return QSize(self.codeEditor.lineNumberAreaWidth(), 0)
+
+    def paintEvent(self, event):
+        self.codeEditor.lineNumberAreaPaintEvent(event)
+
+class CodeEditor(QPlainTextEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.lineNumberArea = LineNumberArea(self)
+        self.blockCountChanged.connect(self.updateLineNumberAreaWidth)
+        self.updateRequest.connect(self.updateLineNumberArea)
+        self.cursorPositionChanged.connect(self.highlightCurrentLine)
+        self.updateLineNumberAreaWidth(0)
+
+    def lineNumberAreaWidth(self):
+        digits = 1
+        max_value = max(1, self.blockCount())
+        while max_value >= 10:
+            max_value /= 10
+            digits += 1
+        # Added padding and margin
+        space = 8 + self.fontMetrics().horizontalAdvance('9') * digits
+        return space
+
+    def updateLineNumberAreaWidth(self, _):
+        self.setViewportMargins(self.lineNumberAreaWidth(), 0, 0, 0)
+
+    def updateLineNumberArea(self, rect, dy):
+        if dy:
+            self.lineNumberArea.scroll(0, dy)
+        else:
+            self.lineNumberArea.update(0, rect.y(), self.lineNumberArea.width(), rect.height())
+        if rect.contains(self.viewport().rect()):
+            self.updateLineNumberAreaWidth(0)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        cr = self.contentsRect()
+        self.lineNumberArea.setGeometry(QRect(cr.left(), cr.top(), self.lineNumberAreaWidth(), cr.height()))
+
+    def lineNumberAreaPaintEvent(self, event):
+        painter = QPainter(self.lineNumberArea)
+        # Sligthly darker background for the line numbers area
+        painter.fillRect(event.rect(), QColor("#f5f5f5"))
+
+        block = self.firstVisibleBlock()
+        blockNumber = block.blockNumber()
+        top = int(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+        bottom = top + int(self.blockBoundingRect(block).height())
+
+        while block.isValid() and top <= event.rect().bottom():
+            if block.isVisible() and bottom >= event.rect().top():
+                number = str(blockNumber + 1)
+                painter.setPen(QColor("#888888"))
+                painter.drawText(0, top, self.lineNumberArea.width() - 5, self.fontMetrics().height(),
+                                 Qt.AlignRight, number)
+            block = block.next()
+            top = bottom
+            bottom = top + int(self.blockBoundingRect(block).height())
+            blockNumber += 1
+
+    def highlightCurrentLine(self):
+        extraSelections = []
+        if not self.isReadOnly():
+            selection = QTextEdit.ExtraSelection()
+            lineColor = QColor(Qt.yellow).lighter(160)
+            selection.format.setBackground(lineColor)
+            selection.format.setProperty(QTextFormat.FullWidthSelection, True)
+            selection.cursor = self.textCursor()
+            selection.cursor.clearSelection()
+            extraSelections.append(selection)
+        self.setExtraSelections(extraSelections)
 
 def standalone_parse_node(node_id: int, data_dir: str, num_days: int):
     """Standalone function for multiprocessing compatibility"""
@@ -283,10 +368,14 @@ class MainWindow(QMainWindow):
         self.sidebar_footer = QListWidget()
         self.sidebar_footer.setObjectName("sidebarMenu")
         self.sidebar_footer.setFocusPolicy(Qt.NoFocus)
-        self.sidebar_footer.setFixedHeight(60) # Nới rộng để không bị mất text
+        self.sidebar_footer.setFixedHeight(135) # Tăng thêm để chắc chắn không bị cuộn
+        self.sidebar_footer.setFrameShape(QListWidget.NoFrame) # Bỏ viền để bớt chiếm diện tích
+        self.sidebar_footer.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.sidebar_footer.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.sidebar_footer.setContentsMargins(0, 0, 0, 0)
         self.sidebar_footer.setSpacing(0)
         
+        self.sidebar_footer.addItem(QListWidgetItem("⚙ Recommendation Setting"))
         self.sidebar_footer.addItem(QListWidgetItem("📦 Collection Tools"))
         self.sidebar_footer.currentRowChanged.connect(self._on_footer_tab_changed)
         
@@ -324,8 +413,9 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self._create_main_tab())       # Index 0
         self.stack.addWidget(self._create_oswbb_tab())      # Index 1
         self.stack.addWidget(self._create_exawatcher_tab()) # Index 2 (ExaWatcher)
-        self.stack.addWidget(self._create_merge_tab())      # Index 3
-        self.stack.addWidget(self._create_tools_tab())      # Index 4
+        self.stack.addWidget(self._create_merge_tab())          # Index 3
+        self.stack.addWidget(self._create_recommendation_tab()) # Index 4 (New)
+        self.stack.addWidget(self._create_tools_tab())          # Index 5 (Shifted)
         
         content_layout.addWidget(self.stack)
         main_layout.addWidget(content_container)
@@ -370,13 +460,18 @@ class MainWindow(QMainWindow):
             self.sidebar.setCurrentRow(-1)
             self.sidebar.blockSignals(False)
             
-            # "Collection Tools" is index 4 in stack
-            self.stack.setCurrentIndex(4)
-            self.section_title.setText("COLLECTION TOOLS")
-            
-            # Auto-sync logic
-            if AUTO_SYNC_TOOLS and not self.has_auto_synced:
-                self._on_sync_github_clicked()
+            if index == 0:
+                # "Recommendation Setting" is index 4 in stack
+                self.stack.setCurrentIndex(4)
+                self.section_title.setText("RECOMMENDATION SETTING")
+            elif index == 1:
+                # "Collection Tools" is index 5 in stack
+                self.stack.setCurrentIndex(5)
+                self.section_title.setText("COLLECTION TOOLS")
+                
+                # Auto-sync logic for Tools tab
+                if AUTO_SYNC_TOOLS and not self.has_auto_synced:
+                    self._on_sync_github_clicked()
 
     def _create_main_tab(self) -> QWidget:
         widget = QWidget()
@@ -1815,3 +1910,172 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'exa_worker') and self.exa_worker:
             self.exa_worker.stop()
             self.stop_exa_btn.setEnabled(False)
+
+    def _create_recommendation_tab(self) -> QWidget:
+        """Create the configuration tab for recommendation rules with internal sidebar navigation"""
+        widget = QWidget()
+        main_hbox = QHBoxLayout()
+        main_hbox.setContentsMargins(0, 0, 0, 0)
+        main_hbox.setSpacing(0)
+        
+        # --- INTERNAL SIDEBAR (LEFT) ---
+        self.rules_sidebar = QListWidget()
+        self.rules_sidebar.setObjectName("sidebarMenu")
+        self.rules_sidebar.setFixedWidth(240)
+        
+        # --- CONTENT AREA (RIGHT) ---
+        content_scroll = QScrollArea()
+        content_scroll.setWidgetResizable(True)
+        content_scroll.setFrameShape(QFrame.NoFrame)
+        # REMOVED: setStyleSheet causing black dropdowns and lost button colors
+        
+        content_pane = QWidget()
+        content_pane_layout = QVBoxLayout(content_pane)
+        # Horizontal Alignment: Left 20, right 40, bottom 20
+        content_pane_layout.setContentsMargins(20, 20, 40, 20) 
+        content_pane_layout.setSpacing(15)
+        
+        # PUSH EVERYTHING TO THE BOTTOM REMOVED to allow editor to expand
+        
+        # Stacks for each section
+        self.rules_stack = QStackedWidget()
+        # Expanding policy is safer for interaction
+        self.rules_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        content_pane_layout.addWidget(self.rules_stack)
+        
+        # Action Buttons (Attached directly to content area)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch() # Push to right
+        
+        btn_save = QPushButton("💾 SAVE ALL SETTINGS")
+        btn_save.setObjectName("main_action_btn")
+        btn_save.setFixedWidth(200)
+        btn_save.clicked.connect(self._on_save_rules_clicked)
+        
+        btn_reset = QPushButton("🔄 Reset to Default")
+        btn_reset.setObjectName("secondary_action_btn")
+        btn_reset.setFixedWidth(180)
+        btn_reset.clicked.connect(self._on_reset_rules_clicked)
+        
+        btn_layout.addWidget(btn_reset)
+        btn_layout.addWidget(btn_save)
+        content_pane_layout.addLayout(btn_layout)
+        
+        # Removed stretch from here (moved to top)
+        
+        content_scroll.setWidget(content_pane)
+        
+        # Load current rules
+        self.current_rules = RulesManager.load_rules()
+        self.rule_inputs = {}
+        
+        # Sort by section ID
+        def sort_key(s):
+            parts = s.split('.')
+            return [int(p) if p.isdigit() else p for p in parts]
+            
+        sorted_sections = sorted(self.current_rules.keys(), key=sort_key)
+        
+        for sid in sorted_sections:
+            rule = self.current_rules[sid]
+            
+            # 1. Add to sidebar
+            item = QListWidgetItem(f"{sid}. {rule.get('title', 'Unknown')}")
+            self.rules_sidebar.addItem(item)
+            
+            # 2. Add to stack - JSON Editor Page
+            section_page = QWidget()
+            page_layout = QVBoxLayout(section_page)
+            page_layout.setContentsMargins(0, 0, 0, 10)
+            
+            header_lbl = QLabel(f"Configuration Rule {sid}: {rule.get('title')}")
+            header_lbl.setStyleSheet("font-weight: bold; font-size: 15px; color: #1565C0; margin-bottom: 2px;")
+            page_layout.addWidget(header_lbl)
+            
+            # Create JSON Editor with LINE NUMBERS
+            editor = CodeEditor()
+            editor.setObjectName("jsonEditor")
+            # Modern Code Styling for the Editor
+            editor.setStyleSheet("""
+                QPlainTextEdit#jsonEditor {
+                    background-color: #fcfcfc;
+                    border: 1px solid #d1d9e6;
+                    border-radius: 15px;
+                    padding: 15px;
+                    color: #333333;
+                    selection-background-color: #CCE5FF;
+                    selection-color: #004085;
+                }
+            """)
+            
+            # Set Monospaced Font
+            font = QFont("Consolas", 11)
+            if not font.fixedPitch(): # Fallback
+                font = QFont("Courier New", 10)
+            editor.setFont(font)
+            editor.setTabStopDistance(QFontMetricsF(editor.font()).horizontalAdvance(' ') * 4)
+            editor.setLineWrapMode(QPlainTextEdit.WidgetWidth) # Enable wrapping
+            
+            # Initialize with JSON
+            json_text = json.dumps(rule, indent=4, ensure_ascii=False)
+            editor.setPlainText(json_text)
+            
+            page_layout.addWidget(editor)
+            self.rule_inputs[sid] = editor
+            
+            self.rules_stack.addWidget(section_page)
+        
+        # Sidebar connection
+        self.rules_sidebar.currentRowChanged.connect(self.rules_stack.setCurrentIndex)
+        self.rules_sidebar.setCurrentRow(0)
+        
+        main_hbox.addWidget(self.rules_sidebar)
+        main_hbox.addWidget(content_scroll, stretch=1)
+        
+        widget.setLayout(main_hbox)
+        return widget
+
+    def _on_save_rules_clicked(self):
+        """Collect all JSON values, validate, and save"""
+        new_rules = {}
+        errors = []
+        
+        for sid, editor in self.rule_inputs.items():
+            try:
+                text = editor.toPlainText()
+                rule_data = json.loads(text)
+                new_rules[sid] = rule_data
+            except json.JSONDecodeError as e:
+                errors.append(f"Section {sid}: {str(e)}")
+        
+        if errors:
+            error_msg = "JSON Syntax Errors found:\n\n" + "\n".join(errors)
+            QMessageBox.critical(self, "Invalid JSON", error_msg)
+            return
+            
+        if RulesManager.save_rules(new_rules):
+            self.current_rules = new_rules
+            QMessageBox.information(self, "Success", "All recommendation settings have been saved successfully.")
+            self.statusBar().showMessage("Rules saved.", 3000)
+        else:
+            QMessageBox.critical(self, "Error", "Failed to write rules to file.")
+
+    def _on_reset_rules_clicked(self):
+        """Reset everything to factory defaults and refresh editors"""
+        reply = QMessageBox.question(self, 'Reset Rules', 
+                                   "Restore ALL rules to factory defaults?",
+                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            defaults = RulesManager.reset_rules()
+            self.current_rules = defaults
+            
+            # Update all editors with new default values
+            for sid, editor in self.rule_inputs.items():
+                if sid in defaults:
+                    json_text = json.dumps(defaults[sid], indent=4, ensure_ascii=False)
+                    editor.setPlainText(json_text)
+            
+            QMessageBox.information(self, "Success", "Rules have been reset to default values.")
+            self.statusBar().showMessage("Rules reset to default.", 3000)

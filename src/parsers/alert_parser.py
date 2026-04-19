@@ -50,16 +50,19 @@ class AlertLogParser(BaseParser):
     TIMESTAMP_12C_RE = re.compile(r'^[2][0][0-9]{2}[-][0-9]{2}[-][0-9]{2}[T][0-9]{2}[:][0-9]{2}[:][0-9]{2}')
     TIMESTAMP_11G_RE = re.compile(r'^\w{3} \w{3} \d{2} \d{2}:\d{2}:\d{2} \d{4}$')
     
-    def __init__(self, log_dir: str, num_days: int = NUM_DAYS_ALERT):
+    def __init__(self, log_dir: str, num_days: int = NUM_DAYS_ALERT, max_lines: int = None):
         """
         Initialize Alert Log Parser
         
         Args:
             log_dir: Directory containing alert log files
             num_days: Filter alerts from last N days
+            max_lines: Max lines to scan back
         """
         super().__init__(log_dir)
         self.num_days = num_days
+        from ..config import ALERT_MAX_LINES
+        self.max_lines = max_lines or ALERT_MAX_LINES
         self.alerts: List[AlertError] = []
         self.db_name = None
         self.instance_name = None
@@ -75,7 +78,7 @@ class AlertLogParser(BaseParser):
                 return False
             
             alert_file = alert_files[0]
-            logger.info(f"Parsing alert log (Optimized/Reverse): {alert_file}")
+            logger.info(f"Parsing alert log (Reverse, limit {self.max_lines} lines): {alert_file}")
             
             # Extract instance name
             filename = alert_file.stem
@@ -89,15 +92,17 @@ class AlertLogParser(BaseParser):
             # Read and parse backward
             self._parse_backward(alert_file, cutoff_date)
             
-            logger.info(f"Found {len(self.alerts)} errors in last {self.num_days} days")
+            logger.info(f"Found {len(self.alerts)} errors in scan")
             return True
         except Exception as e:
             self.add_error("Failed to parse alert log", e)
             return False
 
     def _parse_backward(self, file_path: Path, cutoff_date: datetime):
-        """Read file from end in chunks and stop when date reached"""
+        """Read file from end in chunks and stop when date or line limit reached"""
         chunk_size = 65536 # 64KB
+        line_count = 0
+        
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             f.seek(0, os.SEEK_END)
             file_size = f.tell()
@@ -115,7 +120,7 @@ class AlertLogParser(BaseParser):
                 buffer = new_chunk + buffer
                 lines = buffer.splitlines()
                 
-                # Keep the first line fragment in the buffer for the next iteration (it belongs to the previous chunk)
+                # Keep the first line fragment in the buffer
                 if pointer > 0:
                     buffer = lines[0]
                     lines_to_process = lines[1:]
@@ -125,6 +130,11 @@ class AlertLogParser(BaseParser):
                 
                 # Process lines from this chunk in reverse
                 for line in reversed(lines_to_process):
+                    line_count += 1
+                    if line_count > self.max_lines:
+                        logger.info(f"Reached max scan lines limit: {self.max_lines}")
+                        return
+
                     # 1. Check for 12c Timestamp
                     is_12c = self._is_timestamp_12c(line)
                     if is_12c:
@@ -235,18 +245,28 @@ class AlertLogParser(BaseParser):
         return bool(self.TIMESTAMP_11G_RE.match(line))
     
     def _save_alert(self, timestamp: str, message_lines: List[str]):
-        """Save alert to list - capture full error block"""
+        """Save alert to list - capture only ORA- code for identification"""
         if message_lines:
             first_ora_line = ""
+            error_code_only = "ORA-UNKNOWN"
+            
+            import re
+            ora_pattern = re.compile(r'(ORA-\d+)')
+            
             for line in message_lines:
                 if line.startswith('ORA-'):
                     first_ora_line = line
+                    match = ora_pattern.search(line)
+                    if match:
+                        error_code_only = match.group(1)
+                    else:
+                        error_code_only = line[:9].strip(':') # Fallback
                     break
             
             # Join with newline to keep full block context
             full_text = '\n'.join(message_lines)
             
-            alert = AlertError(timestamp, first_ora_line, error_code=first_ora_line, full_text=full_text)
+            alert = AlertError(timestamp, first_ora_line, error_code=error_code_only, full_text=full_text)
             self.alerts.append(alert)
     
     def get_data(self) -> Dict[str, Any]:

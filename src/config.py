@@ -53,6 +53,7 @@ WINDOW_HEIGHT = 900
 
 # Parser Settings
 NUM_DAYS_ALERT = 30  # Default: last 30 days
+ALERT_MAX_LINES = 10000 # Max lines back from end of file
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
 
 # Database Settings
